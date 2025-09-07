@@ -18,6 +18,10 @@ import { StreamRecorder } from "../recording/stream-recorder";
 import { AdvancedAnalytics } from "../analytics/advanced-analytics";
 import { TipSystem, RecentTips } from "../monetization/tip-system";
 import { CollaborationHub } from "../social/collaboration-hub";
+import { WebRTCAudioStream } from "../streaming/webrtc-audio-stream";
+import { VideoStream } from "../streaming/video-stream";
+import { NFTMarketplace } from "../nft/nft-marketplace";
+import { AutoMixing } from "../ai/auto-mixing";
 
 import { 
   Radio, 
@@ -41,7 +45,12 @@ import {
   Sliders,
   FileAudio,
   Brain,
-  Zap
+  Zap,
+  Video,
+  Sparkles,
+  Cpu,
+  Globe,
+  Wifi
 } from "lucide-react";
 
 interface Stream {
@@ -67,6 +76,7 @@ export function EnhancedLiveDashboard() {
   const [selectedGenre, setSelectedGenre] = useState("house");
   const [activeTab, setActiveTab] = useState("dashboard");
   const [showAdvancedControls, setShowAdvancedControls] = useState(false);
+  const [tracks, setTracks] = useState([]);
 
   // Enhanced dashboard state
   const [dashboardLayout, setDashboardLayout] = useState({
@@ -89,6 +99,16 @@ export function EnhancedLiveDashboard() {
     refetchInterval: isStreaming ? 2000 : false,
     enabled: isStreaming && !!currentStream?.id,
   });
+
+  // Type-safe default values
+  const metricsData = (liveMetrics as any) || {
+    listenerCount: 0,
+    totalLikes: 0,
+    tipsReceived: 0,
+    engagementRate: 0,
+    audioQuality: 'High',
+    serverLoad: 45
+  };
 
   // Fetch recent tips
   const { data: recentTips = [] } = useQuery({
@@ -172,7 +192,7 @@ export function EnhancedLiveDashboard() {
             <Users className="w-5 h-5 text-blue-500" />
             <div>
               <p className="text-2xl font-bold" data-testid="text-listener-count">
-                {liveMetrics?.listenerCount || 0}
+                {metricsData.listenerCount}
               </p>
               <p className="text-xs text-muted-foreground">Listeners</p>
             </div>
@@ -186,7 +206,7 @@ export function EnhancedLiveDashboard() {
             <Heart className="w-5 h-5 text-pink-500" />
             <div>
               <p className="text-2xl font-bold" data-testid="text-total-likes">
-                {liveMetrics?.totalLikes || 0}
+                {metricsData.totalLikes}
               </p>
               <p className="text-xs text-muted-foreground">Likes</p>
             </div>
@@ -200,7 +220,7 @@ export function EnhancedLiveDashboard() {
             <DollarSign className="w-5 h-5 text-green-500" />
             <div>
               <p className="text-2xl font-bold" data-testid="text-tips-received">
-                ${liveMetrics?.tipsReceived || 0}
+                ${metricsData.tipsReceived}
               </p>
               <p className="text-xs text-muted-foreground">Tips</p>
             </div>
@@ -214,7 +234,7 @@ export function EnhancedLiveDashboard() {
             <TrendingUp className="w-5 h-5 text-purple-500" />
             <div>
               <p className="text-2xl font-bold" data-testid="text-engagement-rate">
-                {liveMetrics?.engagementRate || 0}%
+                {metricsData.engagementRate}%
               </p>
               <p className="text-xs text-muted-foreground">Engagement</p>
             </div>
@@ -367,12 +387,14 @@ export function EnhancedLiveDashboard() {
             </Button>
             
             {user && (
-              <TipSystem
-                recipientId={user.id}
-                recipientName={user.djName || user.firstName || 'DJ'}
-                recipientImage={user.profileImageUrl}
-                streamId={currentStream?.id}
-              />
+              <div>
+                <TipSystem
+                  recipientId={(user as any).id || ''}
+                  recipientName={(user as any).djName || (user as any).firstName || 'DJ'}
+                  recipientImage={(user as any).profileImageUrl}
+                  streamId={currentStream?.id}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -383,13 +405,15 @@ export function EnhancedLiveDashboard() {
         {/* Left Panel - Main Controls */}
         <div className="flex-1 p-4 space-y-4 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-8">
               <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
               <TabsTrigger value="music">Music</TabsTrigger>
               <TabsTrigger value="controls">DJ Controls</TabsTrigger>
-              <TabsTrigger value="recording">Recording</TabsTrigger>
+              <TabsTrigger value="webrtc">Live Audio</TabsTrigger>
+              <TabsTrigger value="video">Video Stream</TabsTrigger>
+              <TabsTrigger value="ai">AI Mixing</TabsTrigger>
+              <TabsTrigger value="nft">NFT Market</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
-              <TabsTrigger value="social">Social</TabsTrigger>
             </TabsList>
 
             {/* Dashboard Tab */}
@@ -423,8 +447,8 @@ export function EnhancedLiveDashboard() {
                 </Card>
               )}
 
-              {dashboardLayout.showTips && recentTips.length > 0 && (
-                <RecentTips tips={recentTips} />
+              {dashboardLayout.showTips && Array.isArray(recentTips) && recentTips.length > 0 && (
+                <RecentTips tips={recentTips as any} />
               )}
             </TabsContent>
 
@@ -438,16 +462,63 @@ export function EnhancedLiveDashboard() {
               <AdvancedDJControls />
             </TabsContent>
 
-            {/* Recording Tab */}
-            <TabsContent value="recording" className="space-y-4">
-              <StreamRecorder 
+            {/* WebRTC Audio Tab */}
+            <TabsContent value="webrtc" className="space-y-4">
+              <WebRTCAudioStream 
                 streamId={currentStream?.id}
-                onRecordingComplete={(recording) => {
+                onStreamStart={(streamId) => {
                   toast({
-                    title: "Recording Complete!",
-                    description: `${recording.title} has been saved to your library.`,
+                    title: "Live Audio Stream Started! 🔴",
+                    description: "Broadcasting high-quality audio to listeners",
                   });
                 }}
+                onStreamStop={() => {
+                  toast({
+                    title: "Audio Stream Stopped",
+                    description: "Live audio broadcast has ended",
+                  });
+                }}
+              />
+            </TabsContent>
+
+            {/* Video Stream Tab */}
+            <TabsContent value="video" className="space-y-4">
+              <VideoStream 
+                streamId={currentStream?.id}
+                audioEnabled={true}
+                onStreamStart={(streamData) => {
+                  toast({
+                    title: "Video Stream Started! 📹",
+                    description: "Broadcasting live video to viewers",
+                  });
+                }}
+                onStreamStop={() => {
+                  toast({
+                    title: "Video Stream Stopped",
+                    description: "Video broadcast has ended",
+                  });
+                }}
+              />
+            </TabsContent>
+
+            {/* AI Mixing Tab */}
+            <TabsContent value="ai" className="space-y-4">
+              <AutoMixing 
+                tracks={tracks}
+                onMixComplete={(sessionId) => {
+                  toast({
+                    title: "AI Auto-Mix Complete! 🎵",
+                    description: "Your AI-generated mix is ready to download",
+                  });
+                }}
+              />
+            </TabsContent>
+
+            {/* NFT Marketplace Tab */}
+            <TabsContent value="nft" className="space-y-4">
+              <NFTMarketplace 
+                djId={(user as any)?.id}
+                showCreateButton={true}
               />
             </TabsContent>
 
@@ -458,11 +529,6 @@ export function EnhancedLiveDashboard() {
                 timeRange="day"
               />
             </TabsContent>
-
-            {/* Social Tab */}
-            <TabsContent value="social" className="space-y-4">
-              <CollaborationHub />
-            </TabsContent>
           </Tabs>
         </div>
 
@@ -471,7 +537,6 @@ export function EnhancedLiveDashboard() {
           <div className="w-80 border-l bg-card">
             <ChatSidebar 
               streamId={currentStream?.id}
-              isStreaming={isStreaming}
             />
           </div>
         )}
@@ -490,15 +555,15 @@ export function EnhancedLiveDashboard() {
               <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                 <span className="flex items-center">
                   <Users className="w-4 h-4 mr-1" />
-                  {liveMetrics?.listenerCount || 0}
+                  {metricsData.listenerCount}
                 </span>
                 <span className="flex items-center">
                   <Volume2 className="w-4 h-4 mr-1" />
-                  {liveMetrics?.audioQuality || 'High'}
+                  {metricsData.audioQuality}
                 </span>
                 <span className="flex items-center">
                   <Zap className="w-4 h-4 mr-1" />
-                  {liveMetrics?.serverLoad || 45}% load
+                  {metricsData.serverLoad}% load
                 </span>
               </div>
             </div>
