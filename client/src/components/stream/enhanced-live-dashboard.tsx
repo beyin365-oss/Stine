@@ -24,6 +24,9 @@ import { NFTMarketplace } from "../nft/nft-marketplace";
 import { AutoMixing } from "../ai/auto-mixing";
 import { AudioInputManager } from "../streaming/audio-input-manager";
 import { AudioMixer } from "../streaming/audio-mixer";
+import { DJVideoControl } from "../streaming/dj-video-control";
+import { FanVideoControl } from "../streaming/fan-video-control";
+import { ListenerVideoPanel } from "../streaming/listener-video-panel";
 
 import { 
   Radio, 
@@ -501,8 +504,10 @@ export function EnhancedLiveDashboard() {
               />
             </TabsContent>
 
-            {/* Video Stream Tab */}
+            {/* Video Stream Tab - DJ Camera */}
             <TabsContent value="video" className="space-y-4">
+              <DJVideoControl streamId={currentStream?.id} />
+              
               <VideoStream 
                 streamId={currentStream?.id}
                 audioEnabled={true}
@@ -549,6 +554,16 @@ export function EnhancedLiveDashboard() {
                 timeRange="day"
               />
             </TabsContent>
+
+            {/* Fan Camera Tab (for listeners viewing stream) */}
+            {!isStreaming && (
+              <TabsContent value="fan-cam" className="space-y-4">
+                <ListenerVideoPanel 
+                  streamId={streamId}
+                  djAllowsFanCameras={true}
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
 
