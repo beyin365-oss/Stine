@@ -181,9 +181,10 @@ export const tips = pgTable("tips", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   message: text("message"),
   currency: varchar("currency").default('USD'),
-  paymentMethod: varchar("payment_method").default('stripe'), // stripe, paypal
+  paymentMethod: varchar("payment_method").default('stripe'), // stripe, paypal, paystack
   stripePaymentId: varchar("stripe_payment_id"),
   paypalOrderId: varchar("paypal_order_id"),
+  paystackReference: varchar("paystack_reference"),
   status: varchar("status").default('completed'), // pending, completed, failed, refunded
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -198,10 +199,11 @@ export const transactions = pgTable("transactions", {
   platformFee: decimal("platform_fee", { precision: 10, scale: 2 }).notNull().default('0.00'),
   netAmount: decimal("net_amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency").default('USD'),
-  paymentMethod: varchar("payment_method").notNull(), // stripe, paypal, bank_transfer
+  paymentMethod: varchar("payment_method").notNull(), // stripe, paypal, paystack, bank_transfer
   status: varchar("status").default('pending'), // pending, completed, failed, refunded
   stripePaymentId: varchar("stripe_payment_id"),
   paypalOrderId: varchar("paypal_order_id"),
+  paystackReference: varchar("paystack_reference"),
   stripeChargeId: varchar("stripe_charge_id"),
   description: text("description"),
   metadata: jsonb("metadata"), // { streamId, tierId, orderId, etc. }

@@ -67,6 +67,33 @@ Preferred communication style: Simple, everyday language.
 - **AI-Powered Clip Suggestions**: Automatic detection and suggestion of peak moments for clip creation
 - **Clip Export**: One-click export of auto-detected clips for social media sharing
 
+# Payment System
+
+## Multiple Payment Options (3 Global Processors)
+- **Stripe** - International cards (USD, EUR, GBP, etc.) - 3.9% + $0.30 per transaction
+- **PayPal** - Global payments with alternative payment methods - Variable fees
+- **Paystack** - Naira (NGN) payments for African users - 1.5% local cards, 3.9% international
+
+## Platform Fee Structure
+- **Tips**: 15% platform commission
+- **Subscriptions**: 20% platform commission  
+- **Merchandise**: 25% platform commission
+
+## Payment Integration Features
+- Transaction tracking with complete audit trail
+- Automatic platform fee calculation and splitting
+- Founder revenue dashboard with real-time analytics
+- DJ payout request and approval system
+- Monthly revenue aggregation and reporting
+- Support for multiple currencies (USD, EUR, GBP, NGN)
+
+## Database Tables
+- `transactions` - Complete payment history with fee tracking
+- `payouts` - DJ withdrawal requests and processing
+- `platformRevenue` - Monthly earnings aggregation
+
+---
+
 # Cutting-Edge 2025 Features (Industry-Leading Differentiators)
 
 ## Interactive Engagement (Twitch 2025 Standard)

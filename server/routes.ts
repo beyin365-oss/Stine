@@ -408,6 +408,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Paystack endpoints for Naira payments
+  app.get('/api/paystack/public-key', async (req, res) => {
+    try {
+      const { getPaystackPublicKey } = await import('./paystackClient');
+      const publicKey = await getPaystackPublicKey();
+      res.json({ publicKey });
+    } catch (error) {
+      console.error("Error fetching Paystack public key:", error);
+      res.status(500).json({ message: "Failed to fetch Paystack public key" });
+    }
+  });
+
+  app.post('/api/paystack/initialize', isAuthenticated, async (req: any, res) => {
+    try {
+      const { amount, reference, email } = req.body;
+      const { initializePaystackCharge } = await import('./paystackClient');
+      
+      const response = await initializePaystackCharge(email || req.user.claims.email, amount, reference);
+      res.json(response);
+    } catch (error) {
+      console.error("Error initializing Paystack charge:", error);
+      res.status(500).json({ message: "Failed to initialize payment" });
+    }
+  });
+
+  app.get('/api/paystack/verify/:reference', isAuthenticated, async (req: any, res) => {
+    try {
+      const { reference } = req.params;
+      const { verifyPaystackTransaction } = await import('./paystackClient');
+      
+      const response = await verifyPaystackTransaction(reference);
+      if (response.status === true && response.data.status === 'success') {
+        // Create transaction record
+        const userId = req.user.claims.sub;
+        const transaction = await storage.createTransaction({
+          userId,
+          type: 'tip',
+          amount: (response.data.amount / 100).toString(), // Convert from kobo
+          platformFee: ((response.data.amount / 100) * 0.15).toString(),
+          netAmount: ((response.data.amount / 100) * 0.85).toString(),
+          paymentMethod: 'paystack',
+          status: 'completed',
+          metadata: { reference, email: response.data.customer.email }
+        });
+        
+        res.json({ success: true, transaction });
+      } else {
+        res.status(400).json({ success: false, message: 'Payment verification failed' });
+      }
+    } catch (error) {
+      console.error("Error verifying Paystack transaction:", error);
+      res.status(500).json({ message: "Failed to verify payment" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket setup for real-time chat
