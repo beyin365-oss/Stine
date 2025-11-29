@@ -181,7 +181,71 @@ export const tips = pgTable("tips", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   message: text("message"),
   currency: varchar("currency").default('USD'),
+  paymentMethod: varchar("payment_method").default('stripe'), // stripe, paypal
+  stripePaymentId: varchar("stripe_payment_id"),
+  paypalOrderId: varchar("paypal_order_id"),
+  status: varchar("status").default('completed'), // pending, completed, failed, refunded
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Comprehensive transaction tracking for all payments
+export const transactions = pgTable("transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  recipientId: varchar("recipient_id").references(() => users.id),
+  type: varchar("type").notNull(), // tip, subscription, merchandise, marketplace, payout
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  platformFee: decimal("platform_fee", { precision: 10, scale: 2 }).notNull().default('0.00'),
+  netAmount: decimal("net_amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency").default('USD'),
+  paymentMethod: varchar("payment_method").notNull(), // stripe, paypal, bank_transfer
+  status: varchar("status").default('pending'), // pending, completed, failed, refunded
+  stripePaymentId: varchar("stripe_payment_id"),
+  paypalOrderId: varchar("paypal_order_id"),
+  stripeChargeId: varchar("stripe_charge_id"),
+  description: text("description"),
+  metadata: jsonb("metadata"), // { streamId, tierId, orderId, etc. }
+  failureReason: text("failure_reason"),
+  refundedAt: timestamp("refunded_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("IDX_transaction_user").on(table.userId),
+  index("IDX_transaction_type").on(table.type),
+  index("IDX_transaction_status").on(table.status),
+  index("IDX_transaction_created").on(table.createdAt),
+]);
+
+// Payouts/Withdrawals for DJs and platform
+export const payouts = pgTable("payouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency").default('USD'),
+  status: varchar("status").default('pending'), // pending, processing, completed, failed
+  method: varchar("method").notNull(), // stripe_transfer, paypal_transfer, bank_transfer
+
+  bankAccount: varchar("bank_account"), // for bank transfers - stored encrypted
+  stripeTransferId: varchar("stripe_transfer_id"),
+  paypalTransferId: varchar("paypal_transfer_id"),
+  failureReason: text("failure_reason"),
+  requestedAt: timestamp("requested_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+  completedAt: timestamp("completed_at"),
+});
+
+// Platform fees and revenue tracking
+export const platformRevenue = pgTable("platform_revenue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  month: varchar("month").notNull(), // YYYY-MM format
+  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).default('0.00'),
+  tipCommissions: decimal("tip_commissions", { precision: 10, scale: 2 }).default('0.00'),
+  subscriptionCommissions: decimal("subscription_commissions", { precision: 10, scale: 2 }).default('0.00'),
+  marketplaceCommissions: decimal("marketplace_commissions", { precision: 10, scale: 2 }).default('0.00'),
+  totalTransactions: integer("total_transactions").default(0),
+  totalPayouts: decimal("total_payouts", { precision: 10, scale: 2 }).default('0.00'),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Stream recordings
@@ -424,3 +488,23 @@ export type InsertMerchandise = z.infer<typeof insertMerchandiseSchema>;
 export type TrackCollaboration = typeof trackCollaborations.$inferSelect;
 export type DjPreset = typeof djPresets.$inferSelect;
 export type InsertDjPreset = z.infer<typeof insertDjPresetSchema>;
+export type Transaction = typeof transactions.$inferSelect;
+export type Payout = typeof payouts.$inferSelect;
+export type PlatformRevenue = typeof platformRevenue.$inferSelect;
+
+// Insert schemas for payment tables
+export const insertTransactionSchema = createInsertSchema(transactions).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
+export const insertPayoutSchema = createInsertSchema(payouts).omit({
+  id: true,
+  requestedAt: true,
+  processedAt: true,
+  completedAt: true,
+});
+
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+export type InsertPayout = z.infer<typeof insertPayoutSchema>;

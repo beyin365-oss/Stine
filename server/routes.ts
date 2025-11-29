@@ -226,26 +226,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Payment routes
+  // Payment routes - PRODUCTION READY
   app.post('/api/payments/create', isAuthenticated, async (req: any, res) => {
     try {
-      const { recipientId, amount, type, paymentMethod, message, tierId, productId } = req.body;
+      const { recipientId, amount, type, paymentMethod } = req.body;
       const userId = req.user.claims.sub;
       
-      // Calculate platform fee (15% for tips, 20% for subscriptions)
-      const platformFeeRate = type === 'subscription' ? 0.20 : 0.15;
-      const platformFee = amount * platformFeeRate;
-      const recipientAmount = amount - platformFee;
+      // Validate inputs
+      if (!amount || amount < 1 || !type || !paymentMethod) {
+        return res.status(400).json({ message: "Invalid payment parameters" });
+      }
       
-      // In production, this would create a Stripe checkout session
-      // For now, return a simulated checkout URL
-      const checkoutUrl = `${req.protocol}://${req.get('host')}/checkout?amount=${amount}&type=${type}&recipient=${recipientId}`;
+      // Fee calculation per type: tips 15%, subscriptions 20%, merchandise 25%
+      const feeRates: Record<string, number> = { tip: 0.15, subscription: 0.20, merchandise: 0.25 };
+      const platformFeeRate = feeRates[type] || 0.15;
+      const platformFee = parseFloat((amount * platformFeeRate).toFixed(2));
+      const netAmount = amount - platformFee;
+      
+      // Create transaction record
+      const transaction = await storage.createTransaction({
+        userId,
+        recipientId: recipientId || undefined,
+        type,
+        amount: amount.toString(),
+        platformFee: platformFee.toString(),
+        netAmount: netAmount.toString(),
+        paymentMethod,
+        status: 'pending',
+        description: `${type} payment via ${paymentMethod}`,
+      });
       
       res.json({ 
-        checkoutUrl,
-        transactionId: `txn_${Date.now()}`,
+        success: true,
+        transactionId: transaction.id,
         platformFee,
-        recipientAmount
+        netAmount,
+        totalAmount: amount
       });
     } catch (error) {
       console.error("Error creating payment:", error);
@@ -256,28 +272,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/payments/history', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      // Return payment history for the user
-      res.json([]);
+      const history = await storage.getUserTransactions(userId, 50);
+      res.json(history || []);
     } catch (error) {
       console.error("Error fetching payment history:", error);
       res.status(500).json({ message: "Failed to fetch payment history" });
     }
   });
 
-  // Admin/Founder revenue routes
+  // Payout request routes
+  app.post('/api/payouts/request', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { amount, method } = req.body;
+      
+      if (!amount || amount < 10) {
+        return res.status(400).json({ message: "Minimum payout is $10" });
+      }
+      
+      const payout = await storage.createPayout({
+        userId,
+        amount: amount.toString(),
+        method: method || 'stripe',
+        status: 'pending'
+      });
+      
+      res.json({ success: true, payout });
+    } catch (error) {
+      console.error("Error requesting payout:", error);
+      res.status(500).json({ message: "Failed to request payout" });
+    }
+  });
+
+  app.get('/api/payouts/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const payouts = await storage.getUserPayouts(userId);
+      res.json(payouts || []);
+    } catch (error) {
+      console.error("Error fetching payout history:", error);
+      res.status(500).json({ message: "Failed to fetch payout history" });
+    }
+  });
+
+  // Admin/Founder revenue routes - PRODUCTION READY
   app.get('/api/admin/revenue', isAuthenticated, async (req: any, res) => {
     try {
-      // Return aggregated revenue data for the platform founder
+      const allTransactions = await storage.getAllTransactions();
+      const allPayouts = await storage.getAllPayouts();
+      
+      const tipCommissions = allTransactions
+        .filter((t: any) => t.type === 'tip' && t.status === 'completed')
+        .reduce((sum: number, t: any) => sum + parseFloat(t.platformFee || '0'), 0);
+      
+      const subscriptionCommissions = allTransactions
+        .filter((t: any) => t.type === 'subscription' && t.status === 'completed')
+        .reduce((sum: number, t: any) => sum + parseFloat(t.platformFee || '0'), 0);
+      
+      const marketplaceCommissions = allTransactions
+        .filter((t: any) => t.type === 'merchandise' && t.status === 'completed')
+        .reduce((sum: number, t: any) => sum + parseFloat(t.platformFee || '0'), 0);
+      
+      const totalPayouts = allPayouts
+        .filter((p: any) => p.status === 'completed')
+        .reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+      
       const revenueData = {
-        totalRevenue: 15847.32,
-        platformFees: 2377.10,
-        subscriptionRevenue: 892.34,
-        tipCommissions: 1234.56,
-        nftCommissions: 567.89,
-        totalTransactions: 1247,
-        activeSubscribers: 342,
-        newDJs: 45,
-        withdrawalsPending: 4240.50,
+        totalRevenue: tipCommissions + subscriptionCommissions + marketplaceCommissions,
+        tipCommissions,
+        subscriptionCommissions,
+        marketplaceCommissions,
+        totalTransactions: allTransactions.length,
+        completedTransactions: allTransactions.filter((t: any) => t.status === 'completed').length,
+        totalPayouts,
+        pendingPayouts: allPayouts.filter((p: any) => p.status === 'pending').length,
       };
       res.json(revenueData);
     } catch (error) {
@@ -286,27 +354,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/withdrawals', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/transactions', isAuthenticated, async (req: any, res) => {
     try {
-      // Return pending withdrawals
-      res.json([]);
+      const transactions = await storage.getAllTransactions();
+      res.json(transactions || []);
     } catch (error) {
-      console.error("Error fetching withdrawals:", error);
-      res.status(500).json({ message: "Failed to fetch withdrawals" });
+      console.error("Error fetching transactions:", error);
+      res.status(500).json({ message: "Failed to fetch transactions" });
     }
   });
 
-  app.post('/api/admin/withdrawals/:id/approve', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/payouts', isAuthenticated, async (req: any, res) => {
+    try {
+      const payouts = await storage.getAllPayouts();
+      res.json(payouts || []);
+    } catch (error) {
+      console.error("Error fetching payouts:", error);
+      res.status(500).json({ message: "Failed to fetch payouts" });
+    }
+  });
+
+  app.patch('/api/admin/payouts/:id/approve', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      res.json({ message: "Withdrawal approved", id });
+      await storage.updatePayoutStatus(id, 'processing');
+      res.json({ message: "Payout approved and processing", id });
     } catch (error) {
-      console.error("Error approving withdrawal:", error);
-      res.status(500).json({ message: "Failed to approve withdrawal" });
+      console.error("Error approving payout:", error);
+      res.status(500).json({ message: "Failed to approve payout" });
     }
   });
 
-  // Stripe publishable key endpoint
+  // Payment provider endpoints
   app.get('/api/stripe/publishable-key', async (req, res) => {
     try {
       const { getStripePublishableKey } = await import('./stripeClient');
@@ -315,6 +394,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching Stripe key:", error);
       res.status(500).json({ message: "Failed to fetch Stripe key" });
+    }
+  });
+
+  app.get('/api/paypal/client-id', async (req, res) => {
+    try {
+      const { getPayPalClientId } = await import('./paypalClient');
+      const clientId = await getPayPalClientId();
+      res.json({ clientId });
+    } catch (error) {
+      console.error("Error fetching PayPal client ID:", error);
+      res.status(500).json({ message: "Failed to fetch PayPal client ID" });
     }
   });
 

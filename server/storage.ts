@@ -6,6 +6,9 @@ import {
   songRequests,
   rooms,
   follows,
+  transactions,
+  payouts,
+  platformRevenue,
   type User,
   type UpsertUser,
   type Track,
@@ -250,6 +253,70 @@ export class DatabaseStorage implements IStorage {
       .from(follows)
       .where(and(eq(follows.followerId, followerId), eq(follows.followingId, followingId)));
     return !!follow;
+  }
+
+  // Payment and transaction operations
+  async createTransaction(data: any): Promise<any> {
+    const [transaction] = await db
+      .insert(transactions)
+      .values(data)
+      .returning();
+    return transaction;
+  }
+
+  async getUserTransactions(userId: string, limit = 50): Promise<any[]> {
+    return await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .orderBy(desc(transactions.createdAt))
+      .limit(limit);
+  }
+
+  async getAllTransactions(): Promise<any[]> {
+    return await db
+      .select()
+      .from(transactions)
+      .orderBy(desc(transactions.createdAt));
+  }
+
+  async createPayout(data: any): Promise<any> {
+    const [payout] = await db
+      .insert(payouts)
+      .values(data)
+      .returning();
+    return payout;
+  }
+
+  async getUserPayouts(userId: string): Promise<any[]> {
+    return await db
+      .select()
+      .from(payouts)
+      .where(eq(payouts.userId, userId))
+      .orderBy(desc(payouts.requestedAt));
+  }
+
+  async getAllPayouts(): Promise<any[]> {
+    return await db
+      .select()
+      .from(payouts)
+      .orderBy(desc(payouts.requestedAt));
+  }
+
+  async updatePayoutStatus(id: string, status: string): Promise<void> {
+    await db
+      .update(payouts)
+      .set({ status })
+      .where(eq(payouts.id, id));
+  }
+
+  async getPlatformRevenue(): Promise<any> {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const [revenue] = await db
+      .select()
+      .from(platformRevenue)
+      .where(eq(platformRevenue.month, currentMonth));
+    return revenue;
   }
 }
 
