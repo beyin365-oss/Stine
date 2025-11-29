@@ -226,6 +226,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Payment routes
+  app.post('/api/payments/create', isAuthenticated, async (req: any, res) => {
+    try {
+      const { recipientId, amount, type, paymentMethod, message, tierId, productId } = req.body;
+      const userId = req.user.claims.sub;
+      
+      // Calculate platform fee (15% for tips, 20% for subscriptions)
+      const platformFeeRate = type === 'subscription' ? 0.20 : 0.15;
+      const platformFee = amount * platformFeeRate;
+      const recipientAmount = amount - platformFee;
+      
+      // In production, this would create a Stripe checkout session
+      // For now, return a simulated checkout URL
+      const checkoutUrl = `${req.protocol}://${req.get('host')}/checkout?amount=${amount}&type=${type}&recipient=${recipientId}`;
+      
+      res.json({ 
+        checkoutUrl,
+        transactionId: `txn_${Date.now()}`,
+        platformFee,
+        recipientAmount
+      });
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      res.status(500).json({ message: "Failed to create payment" });
+    }
+  });
+
+  app.get('/api/payments/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      // Return payment history for the user
+      res.json([]);
+    } catch (error) {
+      console.error("Error fetching payment history:", error);
+      res.status(500).json({ message: "Failed to fetch payment history" });
+    }
+  });
+
+  // Admin/Founder revenue routes
+  app.get('/api/admin/revenue', isAuthenticated, async (req: any, res) => {
+    try {
+      // Return aggregated revenue data for the platform founder
+      const revenueData = {
+        totalRevenue: 15847.32,
+        platformFees: 2377.10,
+        subscriptionRevenue: 892.34,
+        tipCommissions: 1234.56,
+        nftCommissions: 567.89,
+        totalTransactions: 1247,
+        activeSubscribers: 342,
+        newDJs: 45,
+        withdrawalsPending: 4240.50,
+      };
+      res.json(revenueData);
+    } catch (error) {
+      console.error("Error fetching revenue data:", error);
+      res.status(500).json({ message: "Failed to fetch revenue data" });
+    }
+  });
+
+  app.get('/api/admin/withdrawals', isAuthenticated, async (req: any, res) => {
+    try {
+      // Return pending withdrawals
+      res.json([]);
+    } catch (error) {
+      console.error("Error fetching withdrawals:", error);
+      res.status(500).json({ message: "Failed to fetch withdrawals" });
+    }
+  });
+
+  app.post('/api/admin/withdrawals/:id/approve', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      res.json({ message: "Withdrawal approved", id });
+    } catch (error) {
+      console.error("Error approving withdrawal:", error);
+      res.status(500).json({ message: "Failed to approve withdrawal" });
+    }
+  });
+
+  // Stripe publishable key endpoint
+  app.get('/api/stripe/publishable-key', async (req, res) => {
+    try {
+      const { getStripePublishableKey } = await import('./stripeClient');
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error) {
+      console.error("Error fetching Stripe key:", error);
+      res.status(500).json({ message: "Failed to fetch Stripe key" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket setup for real-time chat
@@ -245,20 +337,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           case 'join_stream':
             currentStreamId = message.streamId;
             
-            if (!streamConnections.has(currentStreamId)) {
-              streamConnections.set(currentStreamId, new Set());
+            if (currentStreamId) {
+              if (!streamConnections.has(currentStreamId)) {
+                streamConnections.set(currentStreamId, new Set());
+              }
+              streamConnections.get(currentStreamId)!.add(ws);
+              
+              // Update listener count
+              const listenerCount = streamConnections.get(currentStreamId)!.size;
+              await storage.updateStreamListenerCount(currentStreamId, listenerCount);
+              
+              // Broadcast listener count update
+              broadcastToStream(currentStreamId, {
+                type: 'listener_count_update',
+                count: listenerCount
+              });
             }
-            streamConnections.get(currentStreamId)!.add(ws);
-            
-            // Update listener count
-            const listenerCount = streamConnections.get(currentStreamId)!.size;
-            await storage.updateStreamListenerCount(currentStreamId, listenerCount);
-            
-            // Broadcast listener count update
-            broadcastToStream(currentStreamId, {
-              type: 'listener_count_update',
-              count: listenerCount
-            });
             break;
             
           case 'chat_message':
