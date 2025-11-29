@@ -22,6 +22,8 @@ import { WebRTCAudioStream } from "../streaming/webrtc-audio-stream";
 import { VideoStream } from "../streaming/video-stream";
 import { NFTMarketplace } from "../nft/nft-marketplace";
 import { AutoMixing } from "../ai/auto-mixing";
+import { AudioInputManager } from "../streaming/audio-input-manager";
+import { AudioMixer } from "../streaming/audio-mixer";
 
 import { 
   Radio, 
@@ -460,6 +462,24 @@ export function EnhancedLiveDashboard() {
             {/* DJ Controls Tab */}
             <TabsContent value="controls" className="space-y-4">
               <AdvancedDJControls />
+              
+              {/* Audio Input Manager */}
+              <AudioInputManager 
+                onAudioStreamChange={(stream) => {
+                  toast({
+                    title: "External Audio Connected! 🎤",
+                    description: "External device audio is now streaming to listeners",
+                  });
+                }}
+              />
+              
+              {/* Audio Mixer */}
+              <AudioMixer 
+                externalInputVolume={100}
+                onExternalInputVolumeChange={(volume) => {
+                  console.log('External input volume:', volume);
+                }}
+              />
             </TabsContent>
 
             {/* WebRTC Audio Tab */}
