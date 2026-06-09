@@ -8,6 +8,7 @@ import {
   Mic2,
   Radio,
   BarChart3,
+  Crown,
   LogOut,
   User,
   Menu,
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { path: "/studio", label: "Studio", icon: Mic2, color: "text-purple-400" },
   { path: "/feed", label: "Feed", icon: Radio, color: "text-pink-400" },
   { path: "/dashboard", label: "Dashboard", icon: BarChart3, color: "text-yellow-400" },
+  { path: "/subscription", label: "Upgrade", icon: Crown, color: "text-amber-400" },
 ];
 
 export function MobileNav() {

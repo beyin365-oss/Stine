@@ -3,8 +3,9 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertTrackSchema, insertStreamSchema, insertChatMessageSchema, insertSongRequestSchema } from "@shared/schema";
+import { insertTrackSchema, insertStreamSchema, insertChatMessageSchema, insertSongRequestSchema, insertTipSchema } from "@shared/schema";
 import { categorizeListeners } from "./openai";
+import { initializePaystackCharge, verifyPaystackTransaction } from "./paystackClient";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -426,29 +427,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { reference } = req.params;
       const { verifyPaystackTransaction } = await import('./paystackClient');
-      
       const response = await verifyPaystackTransaction(reference);
+
       if (response.status === true && response.data.status === 'success') {
-        // Create transaction record
         const userId = req.user.claims.sub;
+        const amountNaira = response.data.amount / 100; // Convert from kobo
+        const isSubscription = reference.startsWith('stine-sub');
+        const isTip = reference.startsWith('stine-tip');
+        const paymentType = isSubscription ? 'subscription' : isTip ? 'tip' : 'payment';
+        const feeRate = isSubscription ? 0.20 : isTip ? 0.15 : 0.15;
+
         const transaction = await storage.createTransaction({
           userId,
-          type: 'tip',
-          amount: (response.data.amount / 100).toString(), // Convert from kobo
-          platformFee: ((response.data.amount / 100) * 0.15).toString(),
-          netAmount: ((response.data.amount / 100) * 0.85).toString(),
+          type: paymentType,
+          amount: amountNaira.toString(),
+          platformFee: (amountNaira * feeRate).toString(),
+          netAmount: (amountNaira * (1 - feeRate)).toString(),
           paymentMethod: 'paystack',
           status: 'completed',
-          metadata: { reference, email: response.data.customer.email }
+          paystackReference: reference,
+          currency: response.data.currency || 'NGN',
+          metadata: {
+            reference,
+            email: response.data.customer.email,
+            tierId: req.query.tierId || null,
+            gatewayResponse: response.data.gateway_response
+          }
         });
-        
-        res.json({ success: true, transaction });
+
+        res.json({ success: true, transaction, type: paymentType });
       } else {
-        res.status(400).json({ success: false, message: 'Payment verification failed' });
+        res.status(400).json({ success: false, message: 'Payment verification failed', data: response });
       }
     } catch (error) {
       console.error("Error verifying Paystack transaction:", error);
       res.status(500).json({ message: "Failed to verify payment" });
+    }
+  });
+
+  // Subscription tiers endpoint
+  app.get('/api/subscription/tiers', async (req, res) => {
+    try {
+      const tiers = [
+        { id: 'tier-free', name: 'Free', price: 0, currency: 'NGN', features: ['1 stream', 'Basic audio', 'Standard analytics'] },
+        { id: 'tier-basic', name: 'Basic', price: 5000, currency: 'NGN', features: ['3 streams', '320kbps audio', 'Enhanced analytics', 'Custom branding'] },
+        { id: 'tier-pro', name: 'Pro', price: 15000, currency: 'NGN', features: ['5 streams', 'Lossless audio', 'AI analytics', 'Stream recording', 'NFT access'] },
+        { id: 'tier-premium', name: 'Premium', price: 50000, currency: 'NGN', features: ['Unlimited streams', 'Master quality', 'Real-time AI mixing', 'API access', 'Merchandise store'] },
+      ];
+      res.json(tiers);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch tiers' });
+    }
+  });
+
+  // Subscription payment initialization
+  app.post('/api/subscription/pay', isAuthenticated, async (req: any, res) => {
+    try {
+      const { tierId, amount } = req.body;
+      const reference = `stine-sub-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const response = await initializePaystackCharge(
+        req.user.claims.email || 'user@stine.app',
+        amount,
+        reference
+      );
+      res.json({ ...response, reference, tierId });
+    } catch (error) {
+      console.error('Error initializing subscription payment:', error);
+      res.status(500).json({ message: 'Failed to initialize subscription payment' });
     }
   });
 

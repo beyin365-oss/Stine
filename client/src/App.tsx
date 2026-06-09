@@ -12,6 +12,7 @@ import MixerPage from "@/pages/mixer";
 import StudioPage from "@/pages/studio";
 import FeedPage from "@/pages/feed";
 import DashboardPage from "@/pages/dashboard";
+import SubscriptionPage from "@/pages/subscription";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/studio" component={() => <AuthenticatedLayout><StudioPage /></AuthenticatedLayout>} />
       <Route path="/feed" component={() => <AuthenticatedLayout><FeedPage /></AuthenticatedLayout>} />
       <Route path="/dashboard" component={() => <AuthenticatedLayout><DashboardPage /></AuthenticatedLayout>} />
+      <Route path="/subscription" component={() => <AuthenticatedLayout><SubscriptionPage /></AuthenticatedLayout>} />
 
       {/* Admin route */}
       <Route path="/admin" component={AdminPage} />
