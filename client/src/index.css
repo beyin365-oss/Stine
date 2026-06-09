@@ -171,6 +171,11 @@
   background: hsl(var(--primary));
 }
 
+/* Mobile safe area padding for bottom nav */
+.safe-area-pb {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0.5rem));
+}
+
 /* Progress bar enhancements */
 .progress-indicator {
   background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);

@@ -293,7 +293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payout = await storage.createPayout({
         userId,
         amount: amount.toString(),
-        method: method || 'stripe',
+        method: method || 'paystack',
         status: 'pending'
       });
       
@@ -386,17 +386,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment provider endpoints
-  app.get('/api/stripe/publishable-key', async (req, res) => {
-    try {
-      const { getStripePublishableKey } = await import('./stripeClient');
-      const publishableKey = await getStripePublishableKey();
-      res.json({ publishableKey });
-    } catch (error) {
-      console.error("Error fetching Stripe key:", error);
-      res.status(500).json({ message: "Failed to fetch Stripe key" });
-    }
-  });
-
   app.get('/api/paypal/client-id', async (req, res) => {
     try {
       const { getPayPalClientId } = await import('./paypalClient');

@@ -181,8 +181,7 @@ export const tips = pgTable("tips", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   message: text("message"),
   currency: varchar("currency").default('USD'),
-  paymentMethod: varchar("payment_method").default('stripe'), // stripe, paypal, paystack
-  stripePaymentId: varchar("stripe_payment_id"),
+  paymentMethod: varchar("payment_method").default('paystack'), // paystack, paypal
   paypalOrderId: varchar("paypal_order_id"),
   paystackReference: varchar("paystack_reference"),
   status: varchar("status").default('completed'), // pending, completed, failed, refunded
@@ -199,12 +198,10 @@ export const transactions = pgTable("transactions", {
   platformFee: decimal("platform_fee", { precision: 10, scale: 2 }).notNull().default('0.00'),
   netAmount: decimal("net_amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency").default('USD'),
-  paymentMethod: varchar("payment_method").notNull(), // stripe, paypal, paystack, bank_transfer
+  paymentMethod: varchar("payment_method").notNull(), // paystack, paypal, bank_transfer
   status: varchar("status").default('pending'), // pending, completed, failed, refunded
-  stripePaymentId: varchar("stripe_payment_id"),
   paypalOrderId: varchar("paypal_order_id"),
   paystackReference: varchar("paystack_reference"),
-  stripeChargeId: varchar("stripe_charge_id"),
   description: text("description"),
   metadata: jsonb("metadata"), // { streamId, tierId, orderId, etc. }
   failureReason: text("failure_reason"),
@@ -225,10 +222,9 @@ export const payouts = pgTable("payouts", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency").default('USD'),
   status: varchar("status").default('pending'), // pending, processing, completed, failed
-  method: varchar("method").notNull(), // stripe_transfer, paypal_transfer, bank_transfer
+  method: varchar("method").notNull(), // paypal_transfer, bank_transfer, paystack_transfer
 
   bankAccount: varchar("bank_account"), // for bank transfers - stored encrypted
-  stripeTransferId: varchar("stripe_transfer_id"),
   paypalTransferId: varchar("paypal_transfer_id"),
   failureReason: text("failure_reason"),
   requestedAt: timestamp("requested_at").defaultNow(),

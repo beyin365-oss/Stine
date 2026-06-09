@@ -300,7 +300,7 @@ export function TipSystem({
           {/* Payment Info */}
           <div className="text-center">
             <p className="text-xs text-muted-foreground">
-              Secure payment powered by Stripe
+              Secure payment via Paystack or PayPal
             </p>
             <p className="text-xs text-muted-foreground">
               Tips go directly to the DJ
