@@ -22,8 +22,9 @@ import {
   type Room,
   type InsertRoom,
 } from "@shared/schema";
-import { db } from "./db";
+import { db, mongoDb } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { MongoStorage } from "./mongoStorage";
 
 export interface IStorage {
   // User operations
@@ -439,5 +440,12 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Export the appropriate storage based on whether DATABASE_URL is available
-export const storage: IStorage = db ? new DatabaseStorage() : new MemStorage();
+// Export the appropriate storage:
+// 1. PostgreSQL (DATABASE_URL)
+// 2. MongoDB Atlas (MONGODB_URI)
+// 3. In-memory fallback
+export const storage: IStorage = db
+  ? new DatabaseStorage()
+  : mongoDb
+    ? new MongoStorage()
+    : new MemStorage();

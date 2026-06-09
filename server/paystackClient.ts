@@ -1,8 +1,17 @@
 import https from 'https';
 
-let paystackConfig: any;
+let cachedSecretKey: string | null = null;
+let cachedPublicKey: string | null = null;
 
 async function getPaystackCredentials() {
+  // 1. Direct env vars (Render, external hosting, or manual setup)
+  const envPublic = process.env.PAYSTACK_PUBLIC_KEY;
+  const envSecret = process.env.PAYSTACK_SECRET_KEY;
+  if (envPublic && envSecret) {
+    return { publicKey: envPublic, secretKey: envSecret };
+  }
+
+  // 2. Replit connector (fallback)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -10,8 +19,8 @@ async function getPaystackCredentials() {
       ? 'depl ' + process.env.WEB_REPL_RENEWAL
       : null;
 
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+  if (!hostname || !xReplitToken) {
+    throw new Error('Paystack credentials not found. Set PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY environment variables.');
   }
 
   const connectorName = 'paystack';
@@ -44,19 +53,23 @@ async function getPaystackCredentials() {
 }
 
 export async function getPaystackPublicKey() {
+  if (cachedPublicKey) return cachedPublicKey;
   const { publicKey } = await getPaystackCredentials();
+  cachedPublicKey = publicKey;
   return publicKey;
 }
 
 export async function getPaystackSecretKey() {
+  if (cachedSecretKey) return cachedSecretKey;
   const { secretKey } = await getPaystackCredentials();
+  cachedSecretKey = secretKey;
   return secretKey;
 }
 
 // Initialize Paystack charge
 export async function initializePaystackCharge(email: string, amount: number, reference: string) {
-  const { secretKey } = await getPaystackCredentials();
-  
+  const secretKey = await getPaystackSecretKey();
+
   const params = JSON.stringify({
     email,
     amount: Math.round(amount * 100), // Convert to kobo
@@ -79,12 +92,8 @@ export async function initializePaystackCharge(email: string, amount: number, re
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-      res.on('end', () => {
-        resolve(JSON.parse(data));
-      });
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { resolve(JSON.parse(data)); });
     });
 
     req.on('error', reject);
@@ -95,7 +104,7 @@ export async function initializePaystackCharge(email: string, amount: number, re
 
 // Verify Paystack transaction
 export async function verifyPaystackTransaction(reference: string) {
-  const { secretKey } = await getPaystackCredentials();
+  const secretKey = await getPaystackSecretKey();
 
   return new Promise((resolve, reject) => {
     const options = {
@@ -111,12 +120,8 @@ export async function verifyPaystackTransaction(reference: string) {
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-      res.on('end', () => {
-        resolve(JSON.parse(data));
-      });
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { resolve(JSON.parse(data)); });
     });
 
     req.on('error', reject);
