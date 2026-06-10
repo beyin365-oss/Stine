@@ -509,8 +509,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Admin guard middleware ─────────────────────────────────────────────
+  // Checks the requesting user is the platform owner (by email) OR has role=admin
+  const OWNER_EMAIL = (process.env.OWNER_EMAIL || "beyin365@gmail.com").toLowerCase().trim();
+
+  const isAdmin = async (req: any, res: any, next: any) => {
+    if (!req.user) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user) return res.status(401).json({ message: "User not found" });
+      const email = (user.email || "").toLowerCase().trim();
+      if (email === OWNER_EMAIL || (user as any).role === "admin") return next();
+      return res.status(403).json({ message: "Admin access required" });
+    } catch {
+      return res.status(500).json({ message: "Auth check failed" });
+    }
+  };
+
   // Admin user management routes
-  app.get('/api/admin/users', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/users', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const users = await (storage as any).getAllUsers?.() || [];
       res.json(users);
@@ -520,10 +537,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/admin/users/:id/role', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/users/:id/role', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
       const { role } = req.body;
+      const allowed = ['listener', 'dj', 'songcreator', 'admin'];
+      if (!role || !allowed.includes(role)) return res.status(400).json({ message: "Invalid role" });
       await (storage as any).updateUserRole?.(id, role);
       res.json({ message: "Role updated", id, role });
     } catch (error) {
@@ -532,7 +551,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/admin/users/:id/ban', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/users/:id/ban', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
       const { banned } = req.body;
@@ -544,8 +563,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin/Founder revenue routes - PRODUCTION READY
-  app.get('/api/admin/revenue', isAuthenticated, async (req: any, res) => {
+  // Admin/Founder revenue routes
+  app.get('/api/admin/revenue', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const allTransactions = await storage.getAllTransactions();
       const allPayouts = await storage.getAllPayouts();
@@ -583,7 +602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/transactions', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/transactions', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const transactions = await storage.getAllTransactions();
       res.json(transactions || []);
@@ -593,7 +612,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/payouts', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/payouts', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const payouts = await storage.getAllPayouts();
       res.json(payouts || []);
@@ -603,7 +622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/admin/payouts/:id/approve', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/payouts/:id/approve', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
       await storage.updatePayoutStatus(id, 'processing');
