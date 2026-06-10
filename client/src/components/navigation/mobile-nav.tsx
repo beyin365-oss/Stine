@@ -4,15 +4,8 @@ import { Button } from "@/components/ui/button";
 import { StineLogo } from "@/components/ui/geometric-logo";
 import { Badge } from "@/components/ui/badge";
 import {
-  SlidersHorizontal,
-  Mic2,
-  Radio,
-  BarChart3,
-  Crown,
-  LogOut,
-  User,
-  Menu,
-  X,
+  Home, Search, Library, Radio, SlidersHorizontal, Mic2, BarChart3,
+  Crown, User, Bell, LogOut, Menu, X, Headphones
 } from "lucide-react";
 
 interface NavItem {
@@ -20,21 +13,35 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<any>;
   color: string;
+  section: "main" | "dj" | "more";
 }
 
 const navItems: NavItem[] = [
-  { path: "/mixer", label: "Mixer", icon: SlidersHorizontal, color: "text-cyan-400" },
-  { path: "/studio", label: "Studio", icon: Mic2, color: "text-purple-400" },
-  { path: "/feed", label: "Feed", icon: Radio, color: "text-pink-400" },
-  { path: "/dashboard", label: "Dashboard", icon: BarChart3, color: "text-yellow-400" },
-  { path: "/subscription", label: "Upgrade", icon: Crown, color: "text-amber-400" },
+  { path: "/home", label: "Home", icon: Home, color: "text-cyan-400", section: "main" },
+  { path: "/search", label: "Search", icon: Search, color: "text-pink-400", section: "main" },
+  { path: "/library", label: "Library", icon: Library, color: "text-green-400", section: "main" },
+  { path: "/feed", label: "Live", icon: Radio, color: "text-red-400", section: "main" },
+  { path: "/profile", label: "Profile", icon: User, color: "text-purple-400", section: "main" },
+  { path: "/mixer", label: "Mixer", icon: SlidersHorizontal, color: "text-cyan-400", section: "dj" },
+  { path: "/studio", label: "Studio", icon: Mic2, color: "text-purple-400", section: "dj" },
+  { path: "/dashboard", label: "Dashboard", icon: BarChart3, color: "text-yellow-400", section: "dj" },
+  { path: "/subscription", label: "Upgrade", icon: Crown, color: "text-amber-400", section: "dj" },
+  { path: "/notifications", label: "Notifications", icon: Bell, color: "text-blue-400", section: "more" },
+  { path: "/settings", label: "Settings", icon: Headphones, color: "text-gray-400", section: "more" },
 ];
 
 export function MobileNav() {
   const [location, setLocation] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const isActive = (path: string) => location === path;
+  const isActive = (path: string) => {
+    if (path === "/home" && location === "/") return true;
+    return location === path || location.startsWith(path + "/");
+  };
+
+  const mainNav = navItems.filter(n => n.section === "main");
+  const djNav = navItems.filter(n => n.section === "dj");
+  const moreNav = navItems.filter(n => n.section === "more");
 
   return (
     <>
@@ -45,7 +52,7 @@ export function MobileNav() {
           <span className="font-bold text-lg tracking-tight">STINE</span>
         </div>
         <nav className="flex items-center gap-1">
-          {navItems.map((item) => {
+          {mainNav.map((item) => {
             const Icon = item.icon;
             return (
               <Button
@@ -66,6 +73,9 @@ export function MobileNav() {
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse mr-1.5" />
             Live
           </Badge>
+          <Button variant="ghost" size="sm" onClick={() => setLocation("/notifications")}>
+            <Bell className="w-4 h-4" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => window.location.href = "/api/logout"}>
             <LogOut className="w-4 h-4" />
           </Button>
@@ -78,32 +88,74 @@ export function MobileNav() {
           <StineLogo className="scale-60" />
           <span className="font-bold text-sm">STINE</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setLocation("/notifications")}>
+            <Bell className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </Button>
+        </div>
       </div>
 
       {/* Mobile Dropdown Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden fixed top-14 left-0 right-0 bg-card/95 backdrop-blur border-b border-border z-50 p-4 space-y-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Button
-                key={item.path}
-                variant={isActive(item.path) ? "default" : "ghost"}
-                className={`w-full justify-start gap-3 ${isActive(item.path) ? "geometric-gradient text-primary-foreground" : ""}`}
-                onClick={() => { setLocation(item.path); setMobileMenuOpen(false); }}
-              >
-                <Icon className={`w-5 h-5 ${!isActive(item.path) ? item.color : ""}`} />
-                {item.label}
-              </Button>
-            );
-          })}
+        <div className="md:hidden fixed top-14 left-0 right-0 bg-card/95 backdrop-blur border-b border-border z-50 p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground uppercase font-medium px-2">Music</p>
+            {mainNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  key={item.path}
+                  variant={isActive(item.path) ? "default" : "ghost"}
+                  className={`w-full justify-start gap-3 ${isActive(item.path) ? "geometric-gradient text-primary-foreground" : ""}`}
+                  onClick={() => { setLocation(item.path); setMobileMenuOpen(false); }}
+                >
+                  <Icon className={`w-5 h-5 ${!isActive(item.path) ? item.color : ""}`} />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </div>
+          <div className="space-y-1 pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground uppercase font-medium px-2">DJ Tools</p>
+            {djNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  key={item.path}
+                  variant={isActive(item.path) ? "default" : "ghost"}
+                  className={`w-full justify-start gap-3 ${isActive(item.path) ? "geometric-gradient text-primary-foreground" : ""}`}
+                  onClick={() => { setLocation(item.path); setMobileMenuOpen(false); }}
+                >
+                  <Icon className={`w-5 h-5 ${!isActive(item.path) ? item.color : ""}`} />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </div>
+          <div className="space-y-1 pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground uppercase font-medium px-2">More</p>
+            {moreNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  key={item.path}
+                  variant={isActive(item.path) ? "default" : "ghost"}
+                  className={`w-full justify-start gap-3 ${isActive(item.path) ? "geometric-gradient text-primary-foreground" : ""}`}
+                  onClick={() => { setLocation(item.path); setMobileMenuOpen(false); }}
+                >
+                  <Icon className={`w-5 h-5 ${!isActive(item.path) ? item.color : ""}`} />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </div>
           <div className="border-t border-border pt-2">
             <Button variant="ghost" className="w-full justify-start gap-3" onClick={() => window.location.href = "/api/logout"}>
               <LogOut className="w-5 h-5 text-muted-foreground" />
-              Log Out
+              Sign Out
             </Button>
           </div>
         </div>
@@ -112,7 +164,7 @@ export function MobileNav() {
       {/* Mobile Bottom Tab Bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card/90 backdrop-blur border-t border-border z-50 safe-area-pb">
         <div className="flex items-center justify-around py-2 px-1">
-          {navItems.map((item) => {
+          {mainNav.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
             return (

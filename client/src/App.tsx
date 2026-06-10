@@ -7,12 +7,22 @@ import { useAuth } from "@/hooks/useAuth";
 import { MobileNav } from "@/components/navigation/mobile-nav";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
-import AdminPage from "@/pages/admin";
+import LoginPage from "@/pages/login";
+import HomePage from "@/pages/home";
+import SearchPage from "@/pages/search";
+import LibraryPage from "@/pages/library";
+import ArtistPage from "@/pages/artist";
+import AlbumPage from "@/pages/album";
+import PlaylistPage from "@/pages/playlist";
+import ProfilePage from "@/pages/profile";
+import SettingsPage from "@/pages/settings";
+import NotificationsPage from "@/pages/notifications";
 import MixerPage from "@/pages/mixer";
 import StudioPage from "@/pages/studio";
 import FeedPage from "@/pages/feed";
 import DashboardPage from "@/pages/dashboard";
 import SubscriptionPage from "@/pages/subscription";
+import AdminPage from "@/pages/admin";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -40,9 +50,22 @@ function Router() {
   return (
     <Switch>
       {/* Public routes */}
-      <Route path="/" component={isAuthenticated ? () => <AuthenticatedLayout><MixerPage /></AuthenticatedLayout> : Landing} />
+      <Route path="/" component={isAuthenticated ? () => <AuthenticatedLayout><HomePage /></AuthenticatedLayout> : Landing} />
+      <Route path="/login" component={LoginPage} />
+      <Route path="/landing" component={Landing} />
 
-      {/* Authenticated app routes */}
+      {/* Music streaming routes */}
+      <Route path="/home" component={() => <AuthenticatedLayout><HomePage /></AuthenticatedLayout>} />
+      <Route path="/search" component={() => <AuthenticatedLayout><SearchPage /></AuthenticatedLayout>} />
+      <Route path="/library" component={() => <AuthenticatedLayout><LibraryPage /></AuthenticatedLayout>} />
+      <Route path="/artist/:id" component={() => <AuthenticatedLayout><ArtistPage /></AuthenticatedLayout>} />
+      <Route path="/album/:id" component={() => <AuthenticatedLayout><AlbumPage /></AuthenticatedLayout>} />
+      <Route path="/playlist/:id" component={() => <AuthenticatedLayout><PlaylistPage /></AuthenticatedLayout>} />
+      <Route path="/profile" component={() => <AuthenticatedLayout><ProfilePage /></AuthenticatedLayout>} />
+      <Route path="/settings" component={() => <AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
+      <Route path="/notifications" component={() => <AuthenticatedLayout><NotificationsPage /></AuthenticatedLayout>} />
+
+      {/* DJ/Producer routes */}
       <Route path="/mixer" component={() => <AuthenticatedLayout><MixerPage /></AuthenticatedLayout>} />
       <Route path="/studio" component={() => <AuthenticatedLayout><StudioPage /></AuthenticatedLayout>} />
       <Route path="/feed" component={() => <AuthenticatedLayout><FeedPage /></AuthenticatedLayout>} />
