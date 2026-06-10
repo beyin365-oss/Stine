@@ -366,6 +366,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Tip routes
+  app.post('/api/tips', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { recipientId, amount, message, streamId } = req.body;
+      const tipData = insertTipSchema.parse({ userId, recipientId, amount, message, streamId });
+      const tip = await storage.createTip(tipData);
+      res.json(tip);
+    } catch (error) {
+      console.error("Error creating tip:", error);
+      res.status(500).json({ message: "Failed to create tip" });
+    }
+  });
+
+  app.get('/api/tips/:streamId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { streamId } = req.params;
+      const tips = await storage.getStreamTips(streamId);
+      res.json(tips || []);
+    } catch (error) {
+      console.error("Error fetching tips:", error);
+      res.status(500).json({ message: "Failed to fetch tips" });
+    }
+  });
+
   // Payout request routes
   app.post('/api/payouts/request', isAuthenticated, async (req: any, res) => {
     try {

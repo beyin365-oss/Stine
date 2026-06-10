@@ -193,6 +193,17 @@ export class MongoStorage implements IStorage {
     return await this.collection("platformRevenue").findOne({ month: currentMonth });
   }
 
+  async createTip(data: any): Promise<any> {
+    const tip = { ...data, id: this.genId(), createdAt: new Date() };
+    await this.collection("tips").insertOne(tip);
+    return tip;
+  }
+
+  async getStreamTips(streamId: string): Promise<any[]> {
+    const docs = await this.collection("tips").find({ streamId }).sort({ createdAt: -1 }).toArray();
+    return docs;
+  }
+
   // Document transformers
   private docToUser(doc: any): User {
     return { ...doc, id: doc.id, createdAt: new Date(doc.createdAt), updatedAt: new Date(doc.updatedAt) } as User;

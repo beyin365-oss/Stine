@@ -7,6 +7,7 @@ import {
   rooms,
   follows,
   transactions,
+  tips,
   payouts,
   platformRevenue,
   type User,
@@ -68,6 +69,8 @@ export interface IStorage {
   createTransaction(data: any): Promise<any>;
   getUserTransactions(userId: string, limit?: number): Promise<any[]>;
   getAllTransactions(): Promise<any[]>;
+  createTip(data: any): Promise<any>;
+  getStreamTips(streamId: string): Promise<any[]>;
   createPayout(data: any): Promise<any>;
   getUserPayouts(userId: string): Promise<any[]>;
   getAllPayouts(): Promise<any[]>;
@@ -87,6 +90,7 @@ class MemStorage implements IStorage {
   private transactions: Map<string, any> = new Map();
   private payouts: Map<string, any> = new Map();
   private platformRevenue: Map<string, any> = new Map();
+  private tipsData: Map<string, any> = new Map();
   private idCounter = 0;
 
   private genId(): string {
@@ -265,6 +269,18 @@ class MemStorage implements IStorage {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
+  async createTip(data: any): Promise<any> {
+    const tip = { ...data, id: this.genId(), createdAt: new Date() };
+    this.tipsData.set(tip.id, tip);
+    return tip;
+  }
+
+  async getStreamTips(streamId: string): Promise<any[]> {
+    return Array.from(this.tipsData.values())
+      .filter(t => t.streamId === streamId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
   async createPayout(data: any): Promise<any> {
     const payout = { ...data, id: this.genId(), requestedAt: new Date() };
     this.payouts.set(payout.id, payout);
@@ -414,6 +430,15 @@ export class DatabaseStorage implements IStorage {
 
   async getAllTransactions(): Promise<any[]> {
     return await db!.select().from(transactions).orderBy(desc(transactions.createdAt));
+  }
+
+  async createTip(data: any): Promise<any> {
+    const [tip] = await db!.insert(tips).values(data).returning();
+    return tip;
+  }
+
+  async getStreamTips(streamId: string): Promise<any[]> {
+    return await db!.select().from(tips).where(eq(tips.streamId, streamId)).orderBy(desc(tips.createdAt));
   }
 
   async createPayout(data: any): Promise<any> {
