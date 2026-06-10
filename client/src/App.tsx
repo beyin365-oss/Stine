@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { MobileNav } from "@/components/navigation/mobile-nav";
+import { PlayerProvider } from "@/contexts/PlayerContext";
+import { MusicPlayer } from "@/components/player/MusicPlayer";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import LoginPage from "@/pages/login";
@@ -30,6 +32,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col min-h-screen bg-background">
       <MobileNav />
       <main className="flex-1 overflow-y-auto">{children}</main>
+      <MusicPlayer />
     </div>
   );
 }
@@ -80,7 +83,6 @@ function Router() {
 
   return (
     <Switch>
-      {/* Public / auth routes */}
       <Route path="/" component={isAuthenticated
         ? () => <AuthenticatedLayout><HomePage /></AuthenticatedLayout>
         : Landing}
@@ -88,7 +90,6 @@ function Router() {
       <Route path="/login" component={LoginPage} />
       <Route path="/landing" component={Landing} />
 
-      {/* Protected routes */}
       <Route path="/home" component={() => <ProtectedRoute component={HomePage} />} />
       <Route path="/search" component={() => <ProtectedRoute component={SearchPage} />} />
       <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} />} />
@@ -104,7 +105,6 @@ function Router() {
       <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
       <Route path="/subscription" component={() => <ProtectedRoute component={SubscriptionPage} />} />
 
-      {/* Admin route — has its own owner check inside */}
       <Route path="/admin" component={AdminPage} />
 
       <Route component={NotFound} />
@@ -116,8 +116,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <Router />
+        <PlayerProvider>
+          <Toaster />
+          <Router />
+        </PlayerProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -90,6 +90,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public tracks — all public tracks, newest first
+  app.get('/api/tracks/public', async (_req, res) => {
+    try {
+      const tracks = await (storage as any).getAllPublicTracks?.(100) ?? [];
+      res.json(tracks);
+    } catch (error) {
+      console.error("Error fetching public tracks:", error);
+      res.status(500).json({ message: "Failed to fetch public tracks" });
+    }
+  });
+
+  // Search tracks
+  app.get('/api/tracks/search', async (req, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim();
+      if (!q || q.length < 2) return res.json([]);
+      const tracks = await (storage as any).searchTracks?.(q, 50) ?? [];
+      res.json(tracks);
+    } catch (error) {
+      console.error("Error searching tracks:", error);
+      res.status(500).json({ message: "Failed to search tracks" });
+    }
+  });
+
+  // Increment play count (fire-and-forget from client)
+  app.post('/api/tracks/:id/play', async (req, res) => {
+    try {
+      await (storage as any).incrementPlayCount?.(req.params.id);
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: false });
+    }
+  });
+
+  // Download a track — increments count and redirects to fileUrl
+  app.get('/api/tracks/:id/download', isAuthenticated, async (req: any, res) => {
+    try {
+      const track = await storage.getTrack(req.params.id);
+      if (!track) return res.status(404).json({ message: "Track not found" });
+      await (storage as any).incrementDownloadCount?.(track.id);
+      if (track.fileUrl) {
+        res.redirect(track.fileUrl);
+      } else {
+        res.status(404).json({ message: "No audio file for this track" });
+      }
+    } catch (error) {
+      console.error("Error downloading track:", error);
+      res.status(500).json({ message: "Failed to download track" });
+    }
+  });
+
+  // Delete own track
+  app.delete('/api/tracks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const deleted = await (storage as any).deleteTrack?.(req.params.id, userId);
+      if (!deleted) return res.status(404).json({ message: "Track not found or not yours" });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error deleting track:", error);
+      res.status(500).json({ message: "Failed to delete track" });
+    }
+  });
+
   // Stream routes
   app.post('/api/stream/start', isAuthenticated, async (req: any, res) => {
     try {

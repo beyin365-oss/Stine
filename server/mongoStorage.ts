@@ -242,6 +242,41 @@ export class MongoStorage implements IStorage {
     return docs;
   }
 
+  async getAllPublicTracks(limit = 100): Promise<Track[]> {
+    const docs = await this.collection("tracks")
+      .find({ isPublic: true })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
+    return docs.map(this.docToTrack);
+  }
+
+  async searchTracks(query: string, limit = 50): Promise<Track[]> {
+    const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const docs = await this.collection("tracks")
+      .find({
+        isPublic: true,
+        $or: [{ title: regex }, { artist: regex }, { genre: regex }],
+      })
+      .sort({ playCount: -1, createdAt: -1 })
+      .limit(limit)
+      .toArray();
+    return docs.map(this.docToTrack);
+  }
+
+  async incrementPlayCount(trackId: string): Promise<void> {
+    await this.collection("tracks").updateOne({ id: trackId }, { $inc: { playCount: 1 } });
+  }
+
+  async incrementDownloadCount(trackId: string): Promise<void> {
+    await this.collection("tracks").updateOne({ id: trackId }, { $inc: { downloadCount: 1 } });
+  }
+
+  async deleteTrack(trackId: string, userId: string): Promise<boolean> {
+    const result = await this.collection("tracks").deleteOne({ id: trackId, userId });
+    return result.deletedCount > 0;
+  }
+
   // Document transformers
   private docToUser(doc: any): User {
     return { ...doc, id: doc.id, createdAt: new Date(doc.createdAt), updatedAt: new Date(doc.updatedAt) } as User;
