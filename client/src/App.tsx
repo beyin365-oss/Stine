@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -23,6 +23,7 @@ import FeedPage from "@/pages/feed";
 import DashboardPage from "@/pages/dashboard";
 import SubscriptionPage from "@/pages/subscription";
 import AdminPage from "@/pages/admin";
+import { useEffect } from "react";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -33,6 +34,36 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      setLocation("/login");
+    }
+  }, [isAuthenticated, isLoading, setLocation]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 diamond-shape bg-gradient-to-br from-primary via-secondary to-accent animate-pulse mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading STINE...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return null;
+
+  return (
+    <AuthenticatedLayout>
+      <Component />
+    </AuthenticatedLayout>
+  );
+}
+
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -40,7 +71,7 @@ function Router() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 diamond-shape bg-gradient-to-br from-primary via-secondary to-accent animate-pulse mx-auto mb-4"></div>
+          <div className="w-8 h-8 diamond-shape bg-gradient-to-br from-primary via-secondary to-accent animate-pulse mx-auto mb-4" />
           <p className="text-muted-foreground">Loading STINE...</p>
         </div>
       </div>
@@ -49,30 +80,31 @@ function Router() {
 
   return (
     <Switch>
-      {/* Public routes */}
-      <Route path="/" component={isAuthenticated ? () => <AuthenticatedLayout><HomePage /></AuthenticatedLayout> : Landing} />
+      {/* Public / auth routes */}
+      <Route path="/" component={isAuthenticated
+        ? () => <AuthenticatedLayout><HomePage /></AuthenticatedLayout>
+        : Landing}
+      />
       <Route path="/login" component={LoginPage} />
       <Route path="/landing" component={Landing} />
 
-      {/* Music streaming routes */}
-      <Route path="/home" component={() => <AuthenticatedLayout><HomePage /></AuthenticatedLayout>} />
-      <Route path="/search" component={() => <AuthenticatedLayout><SearchPage /></AuthenticatedLayout>} />
-      <Route path="/library" component={() => <AuthenticatedLayout><LibraryPage /></AuthenticatedLayout>} />
-      <Route path="/artist/:id" component={() => <AuthenticatedLayout><ArtistPage /></AuthenticatedLayout>} />
-      <Route path="/album/:id" component={() => <AuthenticatedLayout><AlbumPage /></AuthenticatedLayout>} />
-      <Route path="/playlist/:id" component={() => <AuthenticatedLayout><PlaylistPage /></AuthenticatedLayout>} />
-      <Route path="/profile" component={() => <AuthenticatedLayout><ProfilePage /></AuthenticatedLayout>} />
-      <Route path="/settings" component={() => <AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
-      <Route path="/notifications" component={() => <AuthenticatedLayout><NotificationsPage /></AuthenticatedLayout>} />
+      {/* Protected routes */}
+      <Route path="/home" component={() => <ProtectedRoute component={HomePage} />} />
+      <Route path="/search" component={() => <ProtectedRoute component={SearchPage} />} />
+      <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} />} />
+      <Route path="/artist/:id" component={() => <ProtectedRoute component={ArtistPage} />} />
+      <Route path="/album/:id" component={() => <ProtectedRoute component={AlbumPage} />} />
+      <Route path="/playlist/:id" component={() => <ProtectedRoute component={PlaylistPage} />} />
+      <Route path="/profile" component={() => <ProtectedRoute component={ProfilePage} />} />
+      <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
+      <Route path="/notifications" component={() => <ProtectedRoute component={NotificationsPage} />} />
+      <Route path="/mixer" component={() => <ProtectedRoute component={MixerPage} />} />
+      <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} />} />
+      <Route path="/feed" component={() => <ProtectedRoute component={FeedPage} />} />
+      <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
+      <Route path="/subscription" component={() => <ProtectedRoute component={SubscriptionPage} />} />
 
-      {/* DJ/Producer routes */}
-      <Route path="/mixer" component={() => <AuthenticatedLayout><MixerPage /></AuthenticatedLayout>} />
-      <Route path="/studio" component={() => <AuthenticatedLayout><StudioPage /></AuthenticatedLayout>} />
-      <Route path="/feed" component={() => <AuthenticatedLayout><FeedPage /></AuthenticatedLayout>} />
-      <Route path="/dashboard" component={() => <AuthenticatedLayout><DashboardPage /></AuthenticatedLayout>} />
-      <Route path="/subscription" component={() => <AuthenticatedLayout><SubscriptionPage /></AuthenticatedLayout>} />
-
-      {/* Admin route */}
+      {/* Admin route — has its own owner check inside */}
       <Route path="/admin" component={AdminPage} />
 
       <Route component={NotFound} />

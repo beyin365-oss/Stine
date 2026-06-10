@@ -23,11 +23,32 @@ export class MongoStorage implements IStorage {
     return doc ? this.docToUser(doc) : undefined;
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const doc = await this.collection("users").findOne({ email: email.toLowerCase().trim() });
+    return doc ? this.docToUser(doc) : undefined;
+  }
+
+  async setUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await this.collection("credentials").updateOne(
+      { userId },
+      { $set: { userId, passwordHash, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  }
+
+  async getUserPassword(userId: string): Promise<string | undefined> {
+    const doc = await this.collection("credentials").findOne({ userId });
+    return doc?.passwordHash;
+  }
+
   async upsertUser(userData: UpsertUser): Promise<User> {
     const existing = await this.collection("users").findOne({ id: userData.id });
     const now = new Date();
     const user = {
       ...userData,
+      email: userData.email?.toLowerCase().trim() || existing?.email,
+      role: userData.role || existing?.role || "listener",
+      subscriptionTier: userData.subscriptionTier || existing?.subscriptionTier || "tier-free",
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     } as User;
@@ -41,6 +62,23 @@ export class MongoStorage implements IStorage {
 
   async updateUserStreamingStatus(id: string, isStreaming: boolean): Promise<void> {
     await this.collection("users").updateOne({ id }, { $set: { isStreaming, updatedAt: new Date() } });
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    await this.collection("users").updateOne({ id: userId }, { $set: { role, updatedAt: new Date() } });
+  }
+
+  async updateUserSubscription(userId: string, tierId: string): Promise<void> {
+    await this.collection("users").updateOne({ id: userId }, { $set: { subscriptionTier: tierId, updatedAt: new Date() } });
+  }
+
+  async banUser(userId: string, banned: boolean): Promise<void> {
+    await this.collection("users").updateOne({ id: userId }, { $set: { banned, updatedAt: new Date() } });
+  }
+
+  async getAllUsers(limit = 200): Promise<User[]> {
+    const docs = await this.collection("users").find().sort({ createdAt: -1 }).limit(limit).toArray();
+    return docs.map(this.docToUser);
   }
 
   async getUserByDjName(djName: string): Promise<User | undefined> {

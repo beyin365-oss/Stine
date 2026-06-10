@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { mockSubscriptionTiers } from "@/lib/mockData";
 import { useAuth } from "@/hooks/useAuth";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Check, Crown, Zap, Music, Star, Shield, Radio, BarChart3,
   Headphones, Gift, Video, Store, Loader2
@@ -36,11 +36,18 @@ export default function SubscriptionPage() {
   const { toast } = useToast();
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [isPaying, setIsPaying] = useState(false);
-  const [currentTier] = useState("tier-free");
+
+  // Read actual current tier from user data
+  const currentTier = (user as any)?.subscriptionTier || "tier-free";
 
   const handleSubscribe = async (tier: typeof mockSubscriptionTiers[0]) => {
     if (tier.price === 0) {
       toast({ title: "You're on the Free plan", description: "Upgrade to unlock more features!" });
+      return;
+    }
+
+    if (tier.id === currentTier) {
+      toast({ title: "Already subscribed", description: "This is your current plan." });
       return;
     }
 
@@ -61,7 +68,8 @@ export default function SubscriptionPage() {
       const initRes = await apiRequest("POST", "/api/paystack/initialize", {
         amount: tier.price,
         reference,
-        email: user?.email || "user@stine.app",
+        email: (user as any)?.email || "user@stine.app",
+        metadata: { tierId: tier.id },
       });
       const initData = await initRes.json();
 
@@ -69,7 +77,11 @@ export default function SubscriptionPage() {
         throw new Error(initData.message || "Failed to initialize payment");
       }
 
-      // 3. Redirect to Paystack
+      // 3. Store tierId in session storage so verify can use it on return
+      sessionStorage.setItem("pendingTierId", tier.id);
+      sessionStorage.setItem("pendingRef", reference);
+
+      // 4. Redirect to Paystack checkout
       window.location.href = initData.data.authorization_url;
     } catch (error: any) {
       toast({
@@ -81,6 +93,21 @@ export default function SubscriptionPage() {
       setSelectedTier(null);
     }
   };
+
+  // Check if returning from Paystack (reference in URL)
+  const urlParams = new URLSearchParams(window.location.search);
+  const returnRef = urlParams.get("reference") || urlParams.get("trxref");
+  if (returnRef && sessionStorage.getItem("pendingRef") === returnRef) {
+    const pendingTierId = sessionStorage.getItem("pendingTierId");
+    sessionStorage.removeItem("pendingTierId");
+    sessionStorage.removeItem("pendingRef");
+    // Verify in background
+    apiRequest("GET", `/api/paystack/verify/${returnRef}?tierId=${pendingTierId}`)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] }))
+      .catch(console.error);
+    // Clean URL
+    window.history.replaceState({}, "", "/subscription");
+  }
 
   return (
     <div className="min-h-screen pb-24 md:pb-4 bg-background">
@@ -95,8 +122,8 @@ export default function SubscriptionPage() {
 
         {/* Current Plan Badge */}
         <div className="flex justify-center">
-          <Badge variant="outline" className="text-sm px-4 py-1">
-            Current: {mockSubscriptionTiers.find(t => t.id === currentTier)?.name || "Free"}
+          <Badge variant="outline" className="text-sm px-4 py-1 border-primary text-primary">
+            Current Plan: {mockSubscriptionTiers.find(t => t.id === currentTier)?.name || "Free"}
           </Badge>
         </div>
 
@@ -164,7 +191,7 @@ export default function SubscriptionPage() {
                         Processing...
                       </>
                     ) : isCurrent ? (
-                      "Current Plan"
+                      "Current Plan ✓"
                     ) : tier.price === 0 ? (
                       "Get Started"
                     ) : (

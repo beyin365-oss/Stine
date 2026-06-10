@@ -3,10 +3,14 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { StineLogo } from "@/components/ui/geometric-logo";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Home, Search, Library, Radio, SlidersHorizontal, Mic2, BarChart3,
-  Crown, User, Bell, LogOut, Menu, X, Headphones
+  Crown, User, Bell, LogOut, Menu, X, Headphones, Shield
 } from "lucide-react";
+
+const OWNER_EMAIL = import.meta.env.VITE_OWNER_EMAIL || "beyin365@gmail.com";
 
 interface NavItem {
   path: string;
@@ -33,15 +37,33 @@ const navItems: NavItem[] = [
 export function MobileNav() {
   const [location, setLocation] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user } = useAuth();
+
+  const userEmail = (user as any)?.email || "";
+  const isOwner = userEmail === OWNER_EMAIL || (user as any)?.role === "admin";
 
   const isActive = (path: string) => {
     if (path === "/home" && location === "/") return true;
     return location === path || location.startsWith(path + "/");
   };
 
+  const handleLogout = async () => {
+    try {
+      await apiRequest("POST", "/api/auth/logout", {});
+    } catch {
+      // ignore
+    }
+    await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    window.location.href = "/login";
+  };
+
   const mainNav = navItems.filter(n => n.section === "main");
   const djNav = navItems.filter(n => n.section === "dj");
   const moreNav = navItems.filter(n => n.section === "more");
+
+  const displayName = user
+    ? ((user as any).djName || (user as any).firstName || (user as any).email?.split("@")[0] || "")
+    : "";
 
   return (
     <>
@@ -73,16 +95,24 @@ export function MobileNav() {
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse mr-1.5" />
             Live
           </Badge>
+          {displayName && (
+            <span className="text-xs text-muted-foreground hidden lg:block">{displayName}</span>
+          )}
+          {isOwner && (
+            <Button variant="ghost" size="sm" onClick={() => setLocation("/admin")} title="Owner Dashboard">
+              <Shield className="w-4 h-4 text-amber-500" />
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => setLocation("/notifications")}>
             <Bell className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = "/api/logout"}>
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
       </header>
 
-      {/* Mobile Hamburger Menu */}
+      {/* Mobile Hamburger Header */}
       <div className="md:hidden flex items-center justify-between px-4 py-3 bg-card/80 backdrop-blur border-b border-border sticky top-0 z-50">
         <div className="flex items-center gap-2">
           <StineLogo className="scale-60" />
@@ -152,8 +182,20 @@ export function MobileNav() {
               );
             })}
           </div>
+          {isOwner && (
+            <div className="pt-2 border-t border-border">
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3"
+                onClick={() => { setLocation("/admin"); setMobileMenuOpen(false); }}
+              >
+                <Shield className="w-5 h-5 text-amber-500" />
+                Owner Dashboard
+              </Button>
+            </div>
+          )}
           <div className="border-t border-border pt-2">
-            <Button variant="ghost" className="w-full justify-start gap-3" onClick={() => window.location.href = "/api/logout"}>
+            <Button variant="ghost" className="w-full justify-start gap-3" onClick={handleLogout}>
               <LogOut className="w-5 h-5 text-muted-foreground" />
               Sign Out
             </Button>
@@ -171,9 +213,7 @@ export function MobileNav() {
               <button
                 key={item.path}
                 onClick={() => setLocation(item.path)}
-                className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-all min-w-[64px] ${
-                  active ? "bg-primary/10" : ""
-                }`}
+                className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-all min-w-[64px] ${active ? "bg-primary/10" : ""}`}
               >
                 <Icon className={`w-5 h-5 ${active ? item.color : "text-muted-foreground"}`} />
                 <span className={`text-[10px] font-medium ${active ? item.color : "text-muted-foreground"}`}>

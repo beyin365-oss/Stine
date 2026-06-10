@@ -27,22 +27,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/user/profile', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { djName, bio } = req.body;
-      
+      const { djName, bio, firstName, lastName, profileImageUrl } = req.body;
+
+      const existing = await storage.getUser(userId);
       const updatedUser = await storage.upsertUser({
         id: userId,
-        djName,
-        bio,
-        email: req.user.claims.email,
-        firstName: req.user.claims.first_name,
-        lastName: req.user.claims.last_name,
-        profileImageUrl: req.user.claims.profile_image_url,
+        djName: djName !== undefined ? djName : existing?.djName,
+        bio: bio !== undefined ? bio : (existing as any)?.bio,
+        email: existing?.email || req.user.claims.email,
+        firstName: firstName !== undefined ? firstName : (existing?.firstName || req.user.claims.first_name),
+        lastName: lastName !== undefined ? lastName : (existing?.lastName || req.user.claims.last_name),
+        profileImageUrl: profileImageUrl !== undefined ? profileImageUrl : (existing?.profileImageUrl || req.user.claims.profile_image_url),
       });
-      
+
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating user profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  // Role upgrade route
+  app.patch('/api/user/role', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { role } = req.body;
+      const allowed = ['listener', 'dj', 'songcreator'];
+      if (!role || !allowed.includes(role)) {
+        return res.status(400).json({ message: "Invalid role. Choose: listener, dj, songcreator" });
+      }
+      await (storage as any).updateUserRole?.(userId, role);
+      const updatedUser = await storage.getUser(userId);
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating role:", error);
+      res.status(500).json({ message: "Failed to update role" });
     }
   });
 
@@ -426,6 +445,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin user management routes
+  app.get('/api/admin/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const users = await (storage as any).getAllUsers?.() || [];
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.patch('/api/admin/users/:id/role', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body;
+      await (storage as any).updateUserRole?.(id, role);
+      res.json({ message: "Role updated", id, role });
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
+  app.patch('/api/admin/users/:id/ban', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { banned } = req.body;
+      await (storage as any).banUser?.(id, !!banned);
+      res.json({ message: banned ? "User banned" : "User unbanned", id });
+    } catch (error) {
+      console.error("Error banning user:", error);
+      res.status(500).json({ message: "Failed to update user status" });
+    }
+  });
+
   // Admin/Founder revenue routes - PRODUCTION READY
   app.get('/api/admin/revenue', isAuthenticated, async (req: any, res) => {
     try {
@@ -564,6 +618,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             gatewayResponse: response.data.gateway_response
           }
         });
+
+        // Update subscription tier if this was a subscription payment
+        if (isSubscription) {
+          const tierId = (req.query.tierId as string) || response.data?.metadata?.tierId;
+          if (tierId) {
+            await (storage as any).updateUserSubscription?.(userId, tierId);
+          }
+        }
 
         res.json({ success: true, transaction, type: paymentType });
       } else {

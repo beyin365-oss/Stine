@@ -39,6 +39,9 @@ export const users = pgTable("users", {
   totalStreams: integer("total_streams").default(0),
   totalStreamTime: integer("total_stream_time").default(0), // in minutes
   totalEarnings: decimal("total_earnings", { precision: 10, scale: 2 }).default('0.00'),
+  role: varchar("role").default('listener'), // listener, dj, songcreator, admin
+  subscriptionTier: varchar("subscription_tier").default('tier-free'), // tier-free, tier-basic, tier-pro, tier-premium
+  banned: boolean("banned").default(false),
   verificationLevel: varchar("verification_level").default('basic'), // basic, verified, pro
   genres: text("genres").array(), // preferred genres
   socialLinks: jsonb("social_links"), // { twitter: '', instagram: '', etc. }

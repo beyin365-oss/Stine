@@ -1,6 +1,5 @@
 import * as client from "openid-client";
 import { Strategy, type VerifyFunction } from "openid-client/passport";
-
 import passport from "passport";
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
@@ -8,9 +7,26 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import MemoryStore from "memorystore";
 import { storage } from "./storage";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
+
+export async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
+  const [hashed, salt] = stored.split(".");
+  if (!hashed || !salt) return false;
+  const buf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  return timingSafeEqual(Buffer.from(hashed, "hex"), buf);
+}
 
 if (!process.env.REPLIT_DOMAINS && !process.env.ALLOW_NON_REPLIT_AUTH) {
-  console.warn("REPLIT_DOMAINS not set. Auth will be disabled unless ALLOW_NON_REPLIT_AUTH is set.");
+  console.log("Running without Replit OIDC. Email/password auth active.");
 }
 
 const getOidcConfig = memoize(
@@ -24,10 +40,9 @@ const getOidcConfig = memoize(
 );
 
 export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtl = 7 * 24 * 60 * 60 * 1000;
   let sessionStore: any;
 
-  // Use PostgreSQL session store if available
   if (process.env.DATABASE_URL) {
     const pgStore = connectPg(session);
     sessionStore = new pgStore({
@@ -37,15 +52,12 @@ export function getSession() {
       tableName: "sessions",
     });
   } else {
-    // Fallback to memory store for MongoDB or in-memory
     const MemStore = MemoryStore(session);
-    sessionStore = new MemStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
-    });
+    sessionStore = new MemStore({ checkPeriod: 86400000 });
   }
 
   return session({
-    secret: process.env.SESSION_SECRET || process.env.REPL_ID || "stine-secret-key-change-me",
+    secret: process.env.SESSION_SECRET || "stine-session-secret-change-me-in-production",
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
@@ -53,6 +65,7 @@ export function getSession() {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: sessionTtl,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     },
   });
 }
@@ -67,9 +80,7 @@ function updateUserSession(
   user.expires_at = user.claims?.exp;
 }
 
-async function upsertUser(
-  claims: any,
-) {
+async function upsertUser(claims: any) {
   await storage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
@@ -85,9 +96,115 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Skip Replit OIDC setup if not running on Replit (e.g., Render)
+  // Custom email/password auth routes (works on Render and everywhere)
+  app.post("/api/auth/register", async (req: any, res) => {
+    try {
+      const { email, password, firstName, lastName, djName } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+
+      const existing = await (storage as any).getUserByEmail?.(email);
+      if (existing) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      const passwordHash = await hashPassword(password);
+      const userId = `usr_${randomBytes(12).toString("hex")}`;
+
+      const user = await storage.upsertUser({
+        id: userId,
+        email: email.toLowerCase().trim(),
+        firstName: firstName || "",
+        lastName: lastName || "",
+        djName: djName || null,
+        profileImageUrl: null,
+      });
+
+      await (storage as any).setUserPassword?.(userId, passwordHash);
+
+      const sess = req.session as any;
+      sess.userId = userId;
+      sess.userEmail = email.toLowerCase().trim();
+      sess.userName = firstName || email.split("@")[0];
+
+      res.json({ user, message: "Account created successfully" });
+    } catch (error: any) {
+      console.error("Register error:", error);
+      res.status(500).json({ message: "Registration failed: " + error.message });
+    }
+  });
+
+  app.post("/api/auth/login", async (req: any, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      const user = await (storage as any).getUserByEmail?.(email.toLowerCase().trim());
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const passwordHash = await (storage as any).getUserPassword?.(user.id);
+      if (!passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const valid = await comparePasswords(password, passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const sess = req.session as any;
+      sess.userId = user.id;
+      sess.userEmail = user.email;
+      sess.userName = user.firstName || email.split("@")[0];
+
+      res.json({ user, message: "Logged in successfully" });
+    } catch (error: any) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Login failed: " + error.message });
+    }
+  });
+
+  app.post("/api/auth/logout", (req: any, res) => {
+    const sess = req.session as any;
+    sess.destroy(() => {
+      res.json({ message: "Logged out" });
+    });
+  });
+
+  app.get("/api/logout", (req: any, res) => {
+    const sess = req.session as any;
+    // If Replit OIDC user, do full OIDC logout
+    if (process.env.REPLIT_DOMAINS && req.isAuthenticated?.()) {
+      req.logout(async () => {
+        try {
+          const config = await getOidcConfig();
+          res.redirect(
+            client.buildEndSessionUrl(config, {
+              client_id: process.env.REPL_ID!,
+              post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
+            }).href
+          );
+        } catch {
+          res.redirect("/");
+        }
+      });
+    } else {
+      sess.destroy(() => {
+        res.redirect("/");
+      });
+    }
+  });
+
   if (!process.env.REPLIT_DOMAINS) {
-    console.log("Replit auth disabled. Set REPLIT_DOMAINS to enable OIDC login.");
+    console.log("Replit OIDC disabled on this environment. Using email/password auth.");
     return;
   }
 
@@ -129,63 +246,64 @@ export async function setupAuth(app: Express) {
   app.get("/api/callback", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
       successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
+      failureRedirect: "/login",
     })(req, res, next);
-  });
-
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
-    });
   });
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  // If running without Replit auth (e.g., Render), create a mock user for development
-  if (!process.env.REPLIT_DOMAINS) {
-    if (!req.user) {
-      req.user = {
-        claims: {
-          sub: "dev-user-123",
-          email: "dev@stine.app",
-          first_name: "Dev",
-          last_name: "User",
-          profile_image_url: null,
-        }
-      };
+  // Path 1: Replit OIDC (when running on Replit)
+  if (process.env.REPLIT_DOMAINS) {
+    const user = req.user as any;
+    if (!req.isAuthenticated() || !user?.expires_at) {
+      // Also check session-based auth as fallback
+      const sess = req.session as any;
+      if (sess?.userId) {
+        req.user = {
+          claims: {
+            sub: sess.userId,
+            email: sess.userEmail,
+            first_name: sess.userName,
+            last_name: "",
+            profile_image_url: null,
+          },
+        } as any;
+        return next();
+      }
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    return next();
+
+    const now = Math.floor(Date.now() / 1000);
+    if (now <= user.expires_at) return next();
+
+    const refreshToken = user.refresh_token;
+    if (!refreshToken) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const config = await getOidcConfig();
+      const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
+      updateUserSession(user, tokenResponse);
+      return next();
+    } catch {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
   }
 
-  const user = req.user as any;
-
-  if (!req.isAuthenticated() || !user.expires_at) {
+  // Path 2: Custom session auth (Render, other hosting)
+  const sess = req.session as any;
+  if (!sess?.userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
-    return next();
-  }
+  req.user = {
+    claims: {
+      sub: sess.userId,
+      email: sess.userEmail,
+      first_name: sess.userName,
+      last_name: "",
+      profile_image_url: null,
+    },
+  } as any;
 
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  return next();
 };
