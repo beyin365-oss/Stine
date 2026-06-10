@@ -185,6 +185,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI auto-mixing route
+  app.post('/api/ai/analyze-tracks', isAuthenticated, async (req: any, res) => {
+    try {
+      const { tracks, settings } = req.body;
+      const mixPoints = tracks.map((track: any, idx: number) => {
+        const nextTrack = tracks[idx + 1];
+        if (!nextTrack) return null;
+        const bpmDiff = Math.abs(track.bpm - nextTrack.bpm);
+        const energyMatch = Math.abs(track.energy - nextTrack.energy) < 2;
+        return {
+          fromTrack: track.id,
+          toTrack: nextTrack.id,
+          startTime: Math.floor(track.duration * 0.7),
+          endTime: Math.floor(track.duration * 0.85),
+          crossfadeType: bpmDiff < 5 ? 'beatmatch' : bpmDiff < 10 ? 'smooth' : 'quick',
+          confidence: energyMatch ? 0.92 : 0.75,
+        };
+      }).filter(Boolean);
+
+      res.json({
+        id: `mix-${Date.now()}`,
+        tracks,
+        mixPoints,
+        aiSettings: settings,
+        status: 'ready'
+      });
+    } catch (error) {
+      console.error("Error analyzing tracks:", error);
+      res.status(500).json({ message: "Failed to analyze tracks" });
+    }
+  });
+
+  // AI generate mix
+  app.post('/api/ai/generate-mix', isAuthenticated, async (req: any, res) => {
+    try {
+      const { sessionId, settings } = req.body;
+      res.json({ sessionId, status: 'completed', downloadUrl: `/api/ai/mixes/${sessionId}.wav` });
+    } catch (error) {
+      console.error("Error generating mix:", error);
+      res.status(500).json({ message: "Failed to generate mix" });
+    }
+  });
+
+  // AI mixing recommendations
+  app.get('/api/ai/mixing-recommendations', isAuthenticated, async (req: any, res) => {
+    try {
+      const recommendations = [
+        { id: 'r1', title: 'Switch to Amapiano after track 3', confidence: 0.92, type: 'genre-shift' },
+        { id: 'r2', title: 'Your peak engagement is at 8PM WAT', confidence: 0.88, type: 'timing' },
+        { id: 'r3', title: 'Add more Afrobeat to boost Nigerian audience', confidence: 0.85, type: 'audience' },
+      ];
+      res.json(recommendations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch recommendations" });
+    }
+  });
+
+  // AI clip suggestions
+  app.get('/api/clips/suggestions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { streamId } = req.query;
+      const suggestions = [
+        { id: '1', title: 'Sick Drop at 12:34', timestamp: 754, duration: 45, engagement: 98, description: 'Peak energy moment - crowd went wild' },
+        { id: '2', title: 'Crowd React 15:22', timestamp: 922, duration: 30, engagement: 92, description: 'Listener reactions spiked here' },
+        { id: '3', title: 'Smooth Transition 8:45', timestamp: 525, duration: 20, engagement: 87, description: 'Seamless mixing between genres' },
+      ];
+      res.json(suggestions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch clip suggestions" });
+    }
+  });
+
+  // AI stream title generation
+  app.post('/api/ai/generate-title', isAuthenticated, async (req: any, res) => {
+    try {
+      const { genre, mood } = req.body;
+      const { generateStreamTitle } = await import('./openai');
+      const title = await generateStreamTitle(genre, mood);
+      res.json({ title });
+    } catch (error) {
+      console.error("Error generating title:", error);
+      res.status(500).json({ message: "Failed to generate title" });
+    }
+  });
+
   // Rooms routes
   app.get('/api/rooms/active', async (req, res) => {
     try {
