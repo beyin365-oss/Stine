@@ -25,6 +25,7 @@ import FeedPage from "@/pages/feed";
 import DashboardPage from "@/pages/dashboard";
 import SubscriptionPage from "@/pages/subscription";
 import AdminPage from "@/pages/admin";
+import TermsPage from "@/pages/terms";
 import { useEffect } from "react";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -106,6 +107,7 @@ function Router() {
       <Route path="/subscription" component={() => <ProtectedRoute component={SubscriptionPage} />} />
 
       <Route path="/admin" component={AdminPage} />
+      <Route path="/terms" component={TermsPage} />
 
       <Route component={NotFound} />
     </Switch>

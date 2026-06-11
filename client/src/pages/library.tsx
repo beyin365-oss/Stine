@@ -1,186 +1,114 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { mockTracks } from "@/lib/mockData";
-import { mockPlaylists, mockAlbums } from "@/lib/musicData";
-import { Play, Pause, Heart, Clock, ListMusic, Disc, Download, Plus } from "lucide-react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
+import { Music, Loader2, Play, Pause, Upload, Heart, Download, Plus } from "lucide-react";
+import { useState } from "react";
 
-const FALLBACK = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=120&h=120&fit=crop";
+const FALLBACK_ART = "https://images.unsplash.com/photo-1514525253440-b39345208668?w=300&h=300&fit=crop";
 
 function fmt(s: number) {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 }
 
 export default function LibraryPage() {
-  const [_, setLocation] = useLocation();
-  const { toast } = useToast();
-  const { playTrack, currentTrack, isPlaying, downloadTrack } = usePlayer();
-  const [activeTab, setActiveTab] = useState("playlists");
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set(["t1", "t3", "t5"]));
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { playTrack, currentTrack, isPlaying } = usePlayer();
+  const [liked, setLiked] = useState<Set<string>>(new Set());
 
-  // Real tracks from the server
-  const { data: myTracks = [] } = useQuery<any[]>({ queryKey: ["/api/tracks/my"] });
-  const { data: publicTracks = [] } = useQuery<any[]>({ queryKey: ["/api/tracks/public"] });
+  const { data: myTracks = [], isLoading: tracksLoading } = useQuery<any[]>({ queryKey: ["/api/tracks/my"] });
+  const { data: myPlaylists = [] } = useQuery<any[]>({ queryKey: ["/api/playlists/my"] });
 
-  // Merge real + mock for liked & recent tabs
-  const allTracks = publicTracks.length > 0 ? publicTracks : mockTracks;
-  const likedTracks = allTracks.filter((t: any) => likedIds.has(t.id));
-  const recentTracks = allTracks.slice(0, 6);
+  const toggleLike = (id: string) => setLiked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const toggleLike = (id: string) =>
-    setLikedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  const handlePlay = (track: any, queue: any[]) => {
-    const q = queue.map(t => ({
-      id: t.id, title: t.title, artist: t.artist,
-      duration: t.duration, albumArt: t.albumArt || FALLBACK,
-      fileUrl: t.fileUrl || null, genre: t.genre, bpm: t.bpm,
-    }));
-    playTrack({ ...track, albumArt: track.albumArt || FALLBACK, fileUrl: track.fileUrl || null }, q);
-  };
-
-  const TrackRow = ({ track, queue }: { track: any; queue: any[] }) => {
-    const playing = currentTrack?.id === track.id && isPlaying;
+  const TrackRow = ({ track }: { track: any }) => {
+    const active = currentTrack?.id === track.id;
     return (
-      <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 group cursor-pointer"
-        onClick={() => handlePlay(track, queue)}>
-        <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 relative">
-          <img src={track.albumArt || FALLBACK} alt="" className="w-full h-full object-cover"
-            onError={(e: any) => { e.target.src = FALLBACK; }} />
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            {playing ? <Pause className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white" />}
+      <div className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-card/60 transition-colors group cursor-pointer ${active ? "bg-primary/10" : ""}`}
+        onClick={() => playTrack(track)}>
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-muted">
+          <img src={track.albumArt || FALLBACK_ART} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_ART; }} />
+          <div className={`absolute inset-0 bg-black/40 flex items-center justify-center ${active && isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
+            {active && isPlaying ? <Pause className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white" />}
           </div>
         </div>
         <div className="flex-1 min-w-0">
-          <p className={`font-medium text-sm truncate ${playing ? "text-primary" : ""}`}>{track.title}</p>
-          <p className="text-xs text-muted-foreground">{track.artist}{track.genre ? ` · ${track.genre}` : ""}</p>
+          <p className={`text-sm font-medium truncate ${active ? "text-primary" : ""}`}>{track.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
         </div>
+        {track.genre && <Badge variant="outline" className="text-xs hidden sm:block">{track.genre}</Badge>}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button size="sm" variant="ghost" className="h-8 w-8 p-0"
-            onClick={(e) => { e.stopPropagation(); toggleLike(track.id); }}>
-            <Heart className={`w-4 h-4 ${likedIds.has(track.id) ? "text-pink-500 fill-pink-500" : ""}`} />
-          </Button>
-          {track.fileUrl && (
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0"
-              onClick={(e) => { e.stopPropagation(); downloadTrack({ ...track, albumArt: track.albumArt || FALLBACK }); }}>
-              <Download className="w-4 h-4" />
-            </Button>
-          )}
+          <button onClick={(e) => { e.stopPropagation(); toggleLike(track.id); }} className="p-1.5 rounded-full hover:bg-muted">
+            <Heart className={`w-3.5 h-3.5 ${liked.has(track.id) ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          </button>
         </div>
-        <span className="text-xs text-muted-foreground font-mono">{fmt(track.duration)}</span>
+        <span className="text-xs text-muted-foreground flex-shrink-0">{fmt(track.duration || 0)}</span>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen pb-32 bg-background">
-      <div className="max-w-6xl mx-auto p-4 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Your Library</h1>
-            <p className="text-sm text-muted-foreground">Playlists, albums, liked songs, and more</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => toast({ title: "Create playlist", description: "New playlist created" })}>
-            <Plus className="w-4 h-4 mr-1" /> New
+    <div className="min-h-screen pb-24 md:pb-4 bg-background">
+      <div className="max-w-3xl mx-auto px-4 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-bold flex items-center gap-2"><Music className="w-5 h-5 text-purple-400" /> My Library</h1>
+          <Button size="sm" className="geometric-gradient text-primary-foreground" onClick={() => setLocation("/studio")}>
+            <Upload className="w-4 h-4 mr-1" /> Upload
           </Button>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="playlists" className="gap-1"><ListMusic className="w-3 h-3" />Playlists</TabsTrigger>
-            <TabsTrigger value="albums" className="gap-1"><Disc className="w-3 h-3" />Albums</TabsTrigger>
-            <TabsTrigger value="liked" className="gap-1"><Heart className="w-3 h-3" />Liked</TabsTrigger>
-            <TabsTrigger value="my" className="gap-1"><Plus className="w-3 h-3" />My Tracks</TabsTrigger>
-            <TabsTrigger value="recent" className="gap-1"><Clock className="w-3 h-3" />Recent</TabsTrigger>
+        <Tabs defaultValue="tracks">
+          <TabsList className="mb-4">
+            <TabsTrigger value="tracks">My Tracks {myTracks.length > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{myTracks.length}</Badge>}</TabsTrigger>
+            <TabsTrigger value="liked">Liked <Heart className="w-3 h-3 ml-1 text-red-400" /></TabsTrigger>
+            <TabsTrigger value="playlists">Playlists</TabsTrigger>
           </TabsList>
 
-          {/* Playlists */}
-          <TabsContent value="playlists" className="mt-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {mockPlaylists.slice(0, 8).map((pl: any) => (
-                <div key={pl.id} className="cursor-pointer hover:scale-105 transition-transform"
-                  onClick={() => setLocation(`/playlist/${pl.id}`)}>
-                  <div className="w-full aspect-square rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 overflow-hidden mb-2 relative">
-                    <img src={pl.cover} alt={pl.name} className="w-full h-full object-cover"
-                      onError={(e: any) => { e.target.src = FALLBACK; }} />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute bottom-2 left-2">
-                      <p className="text-white text-xs font-medium">{pl.trackCount} tracks</p>
-                    </div>
-                  </div>
-                  <p className="font-medium text-sm truncate">{pl.name}</p>
-                </div>
-              ))}
-            </div>
+          <TabsContent value="tracks">
+            {tracksLoading ? (
+              <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>
+            ) : myTracks.length === 0 ? (
+              <Card className="geometric-clip"><CardContent className="p-12 text-center">
+                <Upload className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-semibold">No tracks uploaded yet</p>
+                <p className="text-sm text-muted-foreground mt-1">Upload your music to get started</p>
+                <Button className="mt-4 geometric-gradient text-primary-foreground" onClick={() => setLocation("/studio")}>
+                  <Upload className="w-4 h-4 mr-2" /> Upload First Track
+                </Button>
+              </CardContent></Card>
+            ) : (
+              <div className="space-y-1">{myTracks.map((t: any) => <TrackRow key={t.id} track={t} />)}</div>
+            )}
           </TabsContent>
 
-          {/* Albums */}
-          <TabsContent value="albums" className="mt-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {mockAlbums.slice(0, 8).map((album: any) => (
-                <div key={album.id} className="cursor-pointer hover:scale-105 transition-transform"
-                  onClick={() => setLocation(`/album/${album.id}`)}>
-                  <div className="w-full aspect-square rounded-xl overflow-hidden mb-2">
-                    <img src={album.cover} alt={album.title} className="w-full h-full object-cover"
-                      onError={(e: any) => { e.target.src = FALLBACK; }} />
-                  </div>
-                  <p className="font-medium text-sm truncate">{album.title}</p>
-                  <p className="text-xs text-muted-foreground">{album.artist}</p>
-                </div>
-              ))}
-            </div>
+          <TabsContent value="liked">
+            {liked.size === 0 ? (
+              <Card className="geometric-clip"><CardContent className="p-12 text-center">
+                <Heart className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-semibold">No liked tracks</p>
+                <p className="text-sm text-muted-foreground mt-1">Like tracks while browsing to save them here</p>
+              </CardContent></Card>
+            ) : (
+              <div className="space-y-1">
+                {myTracks.filter(t => liked.has(t.id)).map((t: any) => <TrackRow key={t.id} track={t} />)}
+              </div>
+            )}
           </TabsContent>
 
-          {/* Liked songs */}
-          <TabsContent value="liked" className="mt-4">
-            <Card className="geometric-clip">
-              <CardContent className="p-4">
-                {likedTracks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Heart className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                    <p>No liked songs yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {likedTracks.map((t: any) => <TrackRow key={t.id} track={t} queue={likedTracks} />)}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* My Tracks (uploaded/recorded) */}
-          <TabsContent value="my" className="mt-4">
-            <Card className="geometric-clip">
-              <CardContent className="p-4">
-                {myTracks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground space-y-3">
-                    <Plus className="w-10 h-10 mx-auto opacity-30" />
-                    <p>No tracks yet</p>
-                    <Button size="sm" onClick={() => setLocation("/studio")}>Go to Studio</Button>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {myTracks.map((t: any) => <TrackRow key={t.id} track={t} queue={myTracks} />)}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Recently played */}
-          <TabsContent value="recent" className="mt-4">
-            <Card className="geometric-clip">
-              <CardContent className="p-4 space-y-1">
-                {recentTracks.map((t: any) => <TrackRow key={t.id} track={t} queue={recentTracks} />)}
-              </CardContent>
-            </Card>
+          <TabsContent value="playlists">
+            <Card className="geometric-clip"><CardContent className="p-12 text-center">
+              <Plus className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-semibold">No playlists yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Create playlists to organise your music</p>
+              <Button className="mt-4" variant="outline">
+                <Plus className="w-4 h-4 mr-2" /> Create Playlist
+              </Button>
+            </CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>

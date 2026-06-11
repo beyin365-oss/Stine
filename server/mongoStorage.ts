@@ -272,6 +272,18 @@ export class MongoStorage implements IStorage {
     await this.collection("tracks").updateOne({ id: trackId }, { $inc: { downloadCount: 1 } });
   }
 
+  async getLiveStreams(): Promise<Stream[]> {
+    const docs = await this.collection("streams").find({ isLive: true }).toArray();
+    return docs.map(d => this.docToStream(d));
+  }
+
+  async updateUserTermsAcceptance(userId: string, accepted: boolean, acceptedAt: Date): Promise<void> {
+    await this.collection("users").updateOne(
+      { id: userId },
+      { $set: { termsAccepted: accepted, termsAcceptedAt: acceptedAt, updatedAt: new Date() } }
+    );
+  }
+
   async deleteTrack(trackId: string, userId: string): Promise<boolean> {
     const result = await this.collection("tracks").deleteOne({ id: trackId, userId });
     return result.deletedCount > 0;

@@ -99,12 +99,15 @@ export async function setupAuth(app: Express) {
   // Custom email/password auth routes (works on Render and everywhere)
   app.post("/api/auth/register", async (req: any, res) => {
     try {
-      const { email, password, firstName, lastName, djName } = req.body;
+      const { email, password, firstName, lastName, djName, termsAccepted, termsAcceptedAt } = req.body;
       if (!email || !password) {
         return res.status(400).json({ message: "Email and password are required" });
       }
       if (password.length < 6) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+      if (!termsAccepted) {
+        return res.status(400).json({ message: "You must accept the Terms of Service to register" });
       }
 
       const existing = await (storage as any).getUserByEmail?.(email);
@@ -122,9 +125,14 @@ export async function setupAuth(app: Express) {
         lastName: lastName || "",
         djName: djName || null,
         profileImageUrl: null,
-      });
+      } as any);
 
       await (storage as any).setUserPassword?.(userId, passwordHash);
+
+      // Save ToS acceptance
+      if (termsAccepted) {
+        await (storage as any).updateUserTermsAcceptance?.(userId, true, termsAcceptedAt ? new Date(termsAcceptedAt) : new Date());
+      }
 
       const sess = req.session as any;
       sess.userId = userId;

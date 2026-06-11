@@ -1,0 +1,16 @@
+{
+  "name": "STINE - African Music Platform",
+  "short_name": "STINE",
+  "description": "Stream, upload and discover African music. DJ tools, live streaming, recording studio.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#06b6d4",
+  "background_color": "#0a0a0f",
+  "lang": "en",
+  "categories": ["music", "entertainment"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

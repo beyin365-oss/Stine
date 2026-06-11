@@ -76,6 +76,16 @@ export interface IStorage {
   getAllPayouts(): Promise<any[]>;
   updatePayoutStatus(id: string, status: string): Promise<void>;
   getPlatformRevenue(): Promise<any>;
+
+  // Extended operations (optional — implemented on each adapter)
+  getLiveStreams?(): Promise<Stream[]>;
+  updateUserTermsAcceptance?(userId: string, accepted: boolean, acceptedAt: Date): Promise<void>;
+  updateUserRole?(userId: string, role: string): Promise<void>;
+  getUserByEmail?(email: string): Promise<User | undefined>;
+  setUserPassword?(userId: string, hash: string): Promise<void>;
+  getUserPassword?(userId: string): Promise<string | undefined>;
+  incrementDownloadCount?(trackId: string): Promise<void>;
+  updateUserSubscription?(userId: string, tierId: string): Promise<void>;
 }
 
 // In-memory fallback for when no database is available
@@ -306,6 +316,35 @@ class MemStorage implements IStorage {
   async getPlatformRevenue(): Promise<any> {
     const currentMonth = new Date().toISOString().slice(0, 7);
     return this.platformRevenue.get(currentMonth) || null;
+  }
+
+  async getLiveStreams(): Promise<Stream[]> {
+    return Array.from(this.streams.values()).filter(s => s.isLive);
+  }
+
+  async updateUserTermsAcceptance(userId: string, accepted: boolean, acceptedAt: Date): Promise<void> {
+    const u = this.users.get(userId);
+    if (u) { (u as any).termsAccepted = accepted; (u as any).termsAcceptedAt = acceptedAt; u.updatedAt = new Date(); }
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<void> {
+    const u = this.users.get(userId);
+    if (u) { (u as any).role = role; u.updatedAt = new Date(); }
+  }
+
+  private passwords: Map<string, string> = new Map();
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.email?.toLowerCase() === email.toLowerCase());
+  }
+  async setUserPassword(userId: string, hash: string): Promise<void> { this.passwords.set(userId, hash); }
+  async getUserPassword(userId: string): Promise<string | undefined> { return this.passwords.get(userId); }
+  async incrementDownloadCount(trackId: string): Promise<void> {
+    const t = this.tracks.get(trackId);
+    if (t) (t as any).downloadCount = ((t as any).downloadCount || 0) + 1;
+  }
+  async updateUserSubscription(userId: string, tierId: string): Promise<void> {
+    const u = this.users.get(userId);
+    if (u) { (u as any).subscriptionTier = tierId; u.updatedAt = new Date(); }
   }
 }
 

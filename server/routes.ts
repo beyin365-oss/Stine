@@ -735,6 +735,470 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIVE STREAMS
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/streams/live', async (_req, res) => {
+    try {
+      const streams = await (storage as any).getLiveStreams?.() ?? [];
+      res.json(streams);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch live streams" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EDITORIAL CONTENT (categories, artists, albums, playlists)
+  // ─────────────────────────────────────────────────────────────────────────
+  const { EDITORIAL_CATEGORIES, EDITORIAL_ARTISTS, EDITORIAL_ALBUMS, EDITORIAL_PLAYLISTS } = await import('./seeder');
+
+  app.get('/api/content/categories', async (_req, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const cats = await mongoDb.collection('categories').find().toArray();
+        return res.json(cats.length > 0 ? cats : EDITORIAL_CATEGORIES);
+      }
+      res.json(EDITORIAL_CATEGORIES);
+    } catch { res.json(EDITORIAL_CATEGORIES); }
+  });
+
+  app.get('/api/content/artists', async (_req, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const artists = await mongoDb.collection('featured_artists').find().toArray();
+        return res.json(artists.length > 0 ? artists : EDITORIAL_ARTISTS);
+      }
+      res.json(EDITORIAL_ARTISTS);
+    } catch { res.json(EDITORIAL_ARTISTS); }
+  });
+
+  app.get('/api/content/albums', async (_req, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const albums = await mongoDb.collection('featured_albums').find().toArray();
+        return res.json(albums.length > 0 ? albums : EDITORIAL_ALBUMS);
+      }
+      res.json(EDITORIAL_ALBUMS);
+    } catch { res.json(EDITORIAL_ALBUMS); }
+  });
+
+  app.get('/api/content/playlists/featured', async (_req, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const playlists = await mongoDb.collection('featured_playlists').find().toArray();
+        return res.json(playlists.length > 0 ? playlists : EDITORIAL_PLAYLISTS);
+      }
+      res.json(EDITORIAL_PLAYLISTS);
+    } catch { res.json(EDITORIAL_PLAYLISTS); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CREATOR WALLET
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/wallet', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const wallet = await mongoDb.collection('creatorWallets').findOne({ userId });
+        return res.json(wallet || { userId, balance: "0.00", totalEarned: "0.00", totalWithdrawn: "0.00", pendingAmount: "0.00" });
+      }
+      res.json({ userId, balance: "0.00", totalEarned: "0.00", totalWithdrawn: "0.00", pendingAmount: "0.00" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch wallet" });
+    }
+  });
+
+  app.get('/api/wallet/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const transactions = await storage.getUserTransactions?.(userId) ?? [];
+      res.json(transactions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch wallet history" });
+    }
+  });
+
+  app.post('/api/wallet/bank', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { bankName, accountNumber, accountName, bankCode } = req.body;
+      if (!accountNumber || !bankCode) {
+        return res.status(400).json({ message: "Account number and bank code required" });
+      }
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        await mongoDb.collection('creatorWallets').updateOne(
+          { userId },
+          { $set: { bankName, accountNumber, accountName, bankCode, updatedAt: new Date() } },
+          { upsert: true }
+        );
+      }
+      res.json({ message: "Bank details saved" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to save bank details" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CREATOR ANALYTICS
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/creator/analytics', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const tracks = await storage.getUserTracks?.(userId) ?? [];
+      const totalPlays = tracks.reduce((s: number, t: any) => s + (t.playCount || 0), 0);
+      const totalDownloads = tracks.reduce((s: number, t: any) => s + (t.downloadCount || 0), 0);
+      res.json({
+        followers: (user as any)?.followerCount || 0,
+        totalTracks: tracks.length,
+        totalPlays,
+        totalDownloads,
+        streamHours: Math.floor(((user as any)?.totalStreamTime || 0) / 60),
+        monthlyEarnings: "0.00",
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DJ VERIFICATION (KYC)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post('/api/verification/submit', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { bio, socialLink, djName } = req.body;
+      if (!bio?.trim()) {
+        return res.status(400).json({ message: "Bio is required" });
+      }
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const existing = await mongoDb.collection('kycVerifications').findOne({ userId });
+        if (existing && existing.status === 'pending') {
+          return res.status(400).json({ message: "Verification already pending" });
+        }
+        const doc = {
+          id: `kyc_${Date.now()}`,
+          userId,
+          djName: djName || "",
+          bio,
+          socialLink: socialLink || "",
+          status: "pending",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await mongoDb.collection('kycVerifications').updateOne({ userId }, { $set: doc }, { upsert: true });
+        return res.json({ message: "Verification submitted", status: "pending" });
+      }
+      res.json({ message: "Verification submitted (in-memory mode)", status: "pending" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to submit verification" });
+    }
+  });
+
+  app.get('/api/verification/status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const v = await mongoDb.collection('kycVerifications').findOne({ userId });
+        if (!v) return res.json({ status: null });
+        return res.json({ status: v.status, submittedAt: v.createdAt });
+      }
+      res.json({ status: null });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch verification status" });
+    }
+  });
+
+  // Admin KYC management
+  app.get('/api/admin/verifications', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const verifs = await mongoDb.collection('kycVerifications').find().sort({ createdAt: -1 }).toArray();
+        return res.json(verifs);
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch verifications" });
+    }
+  });
+
+  app.patch('/api/admin/verification/:id', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body; // "approved" | "rejected"
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const v = await mongoDb.collection('kycVerifications').findOneAndUpdate(
+          { id },
+          { $set: { status, reviewedAt: new Date() } },
+          { returnDocument: "after" }
+        );
+        // If approved, update user's verificationLevel
+        if (v && status === "approved") {
+          await (storage as any).updateUserRole?.(v.userId, 'dj');
+        }
+        // Audit log
+        const adminUser = await storage.getUser(req.user.claims.sub);
+        await mongoDb.collection('adminAuditLogs').insertOne({
+          id: `audit_${Date.now()}`,
+          action: `verification_${status}`,
+          adminId: req.user.claims.sub,
+          adminEmail: adminUser?.email || "",
+          details: { verificationId: id, userId: v?.userId, status },
+          createdAt: new Date(),
+        });
+        return res.json({ message: `Verification ${status}`, id });
+      }
+      res.json({ message: `Verification ${status}` });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update verification" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ADMIN AUDIT LOGS
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/admin/audit-logs', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const logs = await mongoDb.collection('adminAuditLogs').find().sort({ createdAt: -1 }).limit(200).toArray();
+        return res.json(logs);
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ADMIN PAYOUTS (with Paystack Transfers)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/admin/payouts/pending', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const allPayouts = await storage.getAllPayouts?.() ?? [];
+      const pending = allPayouts.filter((p: any) => p.status === 'pending');
+      // Enrich with user info
+      const enriched = await Promise.all(pending.map(async (p: any) => {
+        const user = await storage.getUser?.(p.userId).catch(() => null);
+        const { mongoDb } = await import('./db');
+        const wallet = mongoDb ? await mongoDb.collection('creatorWallets').findOne({ userId: p.userId }) : null;
+        return {
+          ...p,
+          djName: user?.djName || user?.firstName || p.userId,
+          email: user?.email || "",
+          bankAccount: wallet?.accountNumber || "",
+          bankCode: wallet?.bankCode || "",
+          accountName: wallet?.accountName || "",
+        };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pending payouts" });
+    }
+  });
+
+  app.post('/api/admin/payout/:payoutId/approve', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { payoutId } = req.params;
+      const payout = (await storage.getAllPayouts?.() ?? []).find((p: any) => p.id === payoutId);
+      if (!payout) return res.status(404).json({ message: "Payout not found" });
+      if (payout.status !== 'pending') return res.status(400).json({ message: "Payout is not pending" });
+
+      const { mongoDb } = await import('./db');
+      const wallet = mongoDb ? await mongoDb.collection('creatorWallets').findOne({ userId: payout.userId }) : null;
+      const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
+
+      if (PAYSTACK_SECRET && wallet?.accountNumber && wallet?.bankCode) {
+        // 1. Create transfer recipient
+        const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'nuban',
+            name: wallet.accountName || payout.userId,
+            account_number: wallet.accountNumber,
+            bank_code: wallet.bankCode,
+            currency: 'NGN',
+          }),
+        });
+        const recipientData = await recipientRes.json() as any;
+
+        if (recipientData.status !== true) {
+          return res.status(400).json({ message: "Failed to create transfer recipient: " + recipientData.message });
+        }
+
+        // 2. Initiate transfer (amount in kobo)
+        const amountKobo = Math.round(parseFloat(payout.amount) * 100);
+        const transferRes = await fetch('https://api.paystack.co/transfer', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'balance',
+            amount: amountKobo,
+            recipient: recipientData.data.recipient_code,
+            reason: `STINE Creator Payout - ${payoutId}`,
+          }),
+        });
+        const transferData = await transferRes.json() as any;
+
+        if (transferData.status !== true) {
+          return res.status(400).json({ message: "Transfer failed: " + transferData.message });
+        }
+
+        await storage.updatePayoutStatus?.(payoutId, 'completed');
+      } else {
+        // No Paystack configured — mark as manually processed
+        await storage.updatePayoutStatus?.(payoutId, 'processing');
+      }
+
+      // Audit log
+      const adminUser = await storage.getUser(req.user.claims.sub);
+      if (mongoDb) {
+        await mongoDb.collection('adminAuditLogs').insertOne({
+          id: `audit_${Date.now()}`,
+          action: 'payout_approved',
+          adminId: req.user.claims.sub,
+          adminEmail: adminUser?.email || "",
+          details: { payoutId, amount: payout.amount, userId: payout.userId },
+          createdAt: new Date(),
+        });
+      }
+
+      res.json({ message: PAYSTACK_SECRET ? "Payout transferred via Paystack" : "Payout marked as processing (no Paystack key)" });
+    } catch (error: any) {
+      console.error("Error approving payout:", error);
+      res.status(500).json({ message: "Failed to approve payout: " + error.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PLATFORM HEALTH
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/admin/health', isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const { mongoDb, pool } = await import('./db');
+      const health: any = { uptime: process.uptime(), websocket: "ok", timestamp: new Date() };
+      // MongoDB
+      try { mongoDb ? (await mongoDb.command({ ping: 1 }), health.mongodb = "ok") : (health.mongodb = "not_configured"); }
+      catch { health.mongodb = "error"; }
+      // PostgreSQL
+      try { pool ? (await pool.query("SELECT 1"), health.postgres = "ok") : (health.postgres = "not_configured"); }
+      catch { health.postgres = "error"; }
+      // Paystack
+      health.paystack = process.env.PAYSTACK_SECRET_KEY ? "configured" : "not_configured";
+      res.json(health);
+    } catch (error) {
+      res.status(500).json({ message: "Health check failed" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PAYSTACK WEBHOOK
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post('/api/paystack/webhook', async (req: any, res) => {
+    try {
+      const crypto = await import('crypto');
+      const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
+      const hash = crypto.createHmac('sha512', PAYSTACK_SECRET).update(JSON.stringify(req.body)).digest('hex');
+      if (hash !== req.headers['x-paystack-signature']) {
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+      const event = req.body;
+      if (event.event === 'charge.success') {
+        const reference = event.data.reference;
+        const isSubscription = reference?.startsWith('stine-sub');
+        if (isSubscription) {
+          const userId = event.data.metadata?.userId;
+          const tierId = event.data.metadata?.tierId;
+          if (userId && tierId) {
+            await (storage as any).updateUserSubscription?.(userId, tierId);
+          }
+        }
+      }
+      if (event.event === 'transfer.success') {
+        const reference = event.data.reference;
+        const { mongoDb } = await import('./db');
+        if (mongoDb) {
+          await mongoDb.collection('adminAuditLogs').insertOne({
+            id: `webhook_${Date.now()}`,
+            action: 'paystack_transfer_success',
+            adminId: 'webhook',
+            adminEmail: 'paystack',
+            details: { reference, amount: event.data.amount },
+            createdAt: new Date(),
+          });
+        }
+      }
+      res.json({ received: true });
+    } catch (error) {
+      res.status(500).json({ message: "Webhook processing failed" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DOWNLOAD LIMIT ENFORCEMENT
+  // ─────────────────────────────────────────────────────────────────────────
+  const TIER_DOWNLOAD_LIMITS: Record<string, number> = {
+    'tier-free': 5,
+    'tier-basic': 30,
+    'tier-pro': 100,
+    'tier-premium': 1000,
+    'tier-elite': -1, // unlimited
+  };
+
+  app.get('/api/tracks/:id/download/checked', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const tier = (user as any).subscriptionTier || 'tier-free';
+      const limit = TIER_DOWNLOAD_LIMITS[tier] ?? 5;
+      const { mongoDb } = await import('./db');
+      let downloadCount = 0;
+      if (mongoDb) {
+        const counter = await mongoDb.collection('userDownloadCounts').findOne({ userId });
+        downloadCount = counter?.count || 0;
+        if (limit !== -1 && downloadCount >= limit) {
+          return res.status(403).json({ message: `Download limit reached (${limit} for ${tier}). Upgrade your plan.`, limitReached: true, limit, count: downloadCount });
+        }
+        await mongoDb.collection('userDownloadCounts').updateOne({ userId }, { $inc: { count: 1 }, $set: { lastUpdated: new Date() } }, { upsert: true });
+      }
+      const track = await storage.getTrack(req.params.id);
+      if (!track) return res.status(404).json({ message: "Track not found" });
+      await (storage as any).incrementDownloadCount?.(track.id);
+      if (track.fileUrl) res.redirect(track.fileUrl);
+      else res.status(404).json({ message: "No audio file for this track" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to download" });
+    }
+  });
+
+  // User download count
+  app.get('/api/user/download-count', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const counter = await mongoDb.collection('userDownloadCounts').findOne({ userId });
+        return res.json({ count: counter?.count || 0 });
+      }
+      res.json({ count: 0 });
+    } catch { res.json({ count: 0 }); }
+  });
+
   // Subscription payment initialization
   app.post('/api/subscription/pay', isAuthenticated, async (req: any, res) => {
     try {
