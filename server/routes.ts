@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { registerAdminAuthRoutes, isAdminAuthenticated } from "./adminAuth";
 import { insertTrackSchema, insertStreamSchema, insertChatMessageSchema, insertSongRequestSchema, insertTipSchema } from "@shared/schema";
 import { categorizeListeners } from "./openai";
 import { initializePaystackCharge, verifyPaystackTransaction } from "./paystackClient";
@@ -10,6 +11,9 @@ import { initializePaystackCharge, verifyPaystackTransaction } from "./paystackC
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+
+  // Admin auth routes (founder bootstrap, admin login, password reset, account management)
+  registerAdminAuthRoutes(app);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
@@ -1213,6 +1217,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error initializing subscription payment:', error);
       res.status(500).json({ message: 'Failed to initialize subscription payment' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ADMIN USER MANAGEMENT (uses isAdminAuthenticated — separate from isAdmin)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/admin/users', isAdminAuthenticated, async (_req: any, res: any) => {
+    try {
+      const users = await (storage as any).getAllUsers?.() ?? [];
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.patch('/api/admin/users/:id/role', isAdminAuthenticated, async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body;
+      const allowed = ["listener", "dj", "broadcaster", "songcreator", "admin", "super_admin"];
+      if (!allowed.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      await (storage as any).updateUserRole?.(id, role);
+      // Audit log
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        await mongoDb.collection('adminAuditLogs').insertOne({ id: `audit_${Date.now()}`, action: 'user_role_updated', adminId: (req as any).admin?.id, details: { userId: id, role }, createdAt: new Date() });
+      }
+      res.json({ message: "Role updated", id, role });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
+  app.patch('/api/admin/users/:id/ban', isAdminAuthenticated, async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const { banned } = req.body;
+      await (storage as any).banUser?.(id, !!banned);
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        await mongoDb.collection('adminAuditLogs').insertOne({ id: `audit_${Date.now()}`, action: banned ? 'user_banned' : 'user_unbanned', adminId: (req as any).admin?.id, details: { userId: id }, createdAt: new Date() });
+      }
+      res.json({ message: banned ? "User suspended" : "User reactivated", id });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update user status" });
+    }
+  });
+
+  app.get('/api/admin/fraud', isAdminAuthenticated, async (_req: any, res: any) => {
+    try {
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const flagged = await mongoDb.collection('fraudFlags').find({ resolved: { $ne: true } }).limit(50).toArray();
+        const resolved = await mongoDb.collection('fraudFlags').countDocuments({ resolved: true });
+        return res.json({ suspiciousAccounts: flagged, resolvedCases: resolved, openCases: flagged.length });
+      }
+      res.json({ suspiciousAccounts: [], resolvedCases: 0, openCases: 0 });
+    } catch {
+      res.json({ suspiciousAccounts: [], resolvedCases: 0, openCases: 0 });
     }
   });
 

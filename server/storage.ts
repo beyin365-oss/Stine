@@ -79,6 +79,8 @@ export interface IStorage {
 
   // Extended operations (optional — implemented on each adapter)
   getLiveStreams?(): Promise<Stream[]>;
+  getAllUsers?(): Promise<User[]>;
+  banUser?(userId: string, banned: boolean): Promise<void>;
   updateUserTermsAcceptance?(userId: string, accepted: boolean, acceptedAt: Date): Promise<void>;
   updateUserRole?(userId: string, role: string): Promise<void>;
   getUserByEmail?(email: string): Promise<User | undefined>;
@@ -332,6 +334,15 @@ class MemStorage implements IStorage {
     if (u) { (u as any).role = role; u.updatedAt = new Date(); }
   }
 
+  async getAllUsers(): Promise<User[]> {
+    return Array.from(this.users.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async banUser(userId: string, banned: boolean): Promise<void> {
+    const u = this.users.get(userId);
+    if (u) { (u as any).isBanned = banned; u.updatedAt = new Date(); }
+  }
+
   private passwords: Map<string, string> = new Map();
   async getUserByEmail(email: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(u => u.email?.toLowerCase() === email.toLowerCase());
@@ -501,6 +512,14 @@ export class DatabaseStorage implements IStorage {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const [revenue] = await db!.select().from(platformRevenue).where(eq(platformRevenue.month, currentMonth));
     return revenue;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db!.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async banUser(userId: string, banned: boolean): Promise<void> {
+    await db!.update(users).set({ isBanned: banned, updatedAt: new Date() } as any).where(eq(users.id, userId));
   }
 }
 

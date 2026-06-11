@@ -25,6 +25,8 @@ import FeedPage from "@/pages/feed";
 import DashboardPage from "@/pages/dashboard";
 import SubscriptionPage from "@/pages/subscription";
 import AdminPage from "@/pages/admin";
+import AdminLoginPage from "@/pages/admin-login";
+import AdminSetupPage from "@/pages/admin-setup";
 import TermsPage from "@/pages/terms";
 import { useEffect } from "react";
 
@@ -68,8 +70,26 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   );
 }
 
+/* ── Admin routes are fully isolated from the user app ─────────────── */
+function AdminRouter() {
+  return (
+    <Switch>
+      <Route path="/admin/login" component={AdminLoginPage} />
+      <Route path="/admin/setup" component={AdminSetupPage} />
+      <Route path="/admin" component={AdminPage} />
+      <Route path="/admin/:rest*" component={AdminPage} />
+    </Switch>
+  );
+}
+
 function Router() {
+  const [location] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Admin routes are completely isolated — no user nav, no MusicPlayer, no session sharing
+  if (location.startsWith("/admin")) {
+    return <AdminRouter />;
+  }
 
   if (isLoading) {
     return (
@@ -105,8 +125,6 @@ function Router() {
       <Route path="/feed" component={() => <ProtectedRoute component={FeedPage} />} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
       <Route path="/subscription" component={() => <ProtectedRoute component={SubscriptionPage} />} />
-
-      <Route path="/admin" component={AdminPage} />
       <Route path="/terms" component={TermsPage} />
 
       <Route component={NotFound} />

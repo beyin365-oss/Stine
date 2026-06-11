@@ -1,436 +1,573 @@
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Shield, LogIn, Users, BarChart3, Settings, Ban, Crown,
-  DollarSign, TrendingUp, Activity, CheckCircle2, XCircle,
-  AlertTriangle, Clock, FileText, Zap, Heart, Radio,
-  Music, Download, Send, Eye, RefreshCw, Server, Wifi,
-  Database, CreditCard, UserCheck, Flag, Bell
+  Crown, LogOut, Shield, BarChart3, Users, UserCheck, CreditCard,
+  FileText, Activity, Flag, Settings, Zap, CheckCircle, XCircle,
+  AlertTriangle, Clock, Server, Database, DollarSign, TrendingUp,
+  UserPlus, Ban, RefreshCw, Eye, EyeOff, Key, Trash2
 } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useLocation } from "wouter";
-import { useState } from "react";
 
-const OWNER_EMAIL = import.meta.env.VITE_OWNER_EMAIL || "beyin365@gmail.com";
+const OWNER_EMAIL = "beyin365@gmail.com";
 
-/* ── User Management ─────────────────────────────────────────────── */
-function UserManagement() {
-  const { toast } = useToast();
-  const { data: users = [] } = useQuery<any[]>({ queryKey: ["/api/admin/users"] });
-
-  const roleMut = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: string }) => (await apiRequest("PATCH", `/api/admin/users/${id}/role`, { role })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] }); toast({ title: "Role updated" }); },
-    onError: () => toast({ title: "Failed to update role", variant: "destructive" }),
-  });
-  const banMut = useMutation({
-    mutationFn: async ({ id, banned }: { id: string; banned: boolean }) => (await apiRequest("PATCH", `/api/admin/users/${id}/ban`, { banned })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] }); toast({ title: "User status updated" }); },
-    onError: () => toast({ title: "Failed to update user", variant: "destructive" }),
-  });
-
-  const roleColor: Record<string, string> = { listener: "bg-gray-500", dj: "bg-purple-500", songcreator: "bg-blue-500", admin: "bg-red-500" };
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">User Management</h2>
-        <Badge className="bg-primary/20 text-primary">{users.length} users</Badge>
-      </div>
-      {users.length === 0 && <Card><CardContent className="p-8 text-center text-muted-foreground">No users yet</CardContent></Card>}
-      {users.map((u: any) => (
-        <Card key={u.id} className="geometric-clip">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 overflow-hidden flex-shrink-0">
-                {u.profileImageUrl
-                  ? <img src={u.profileImageUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                  : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-primary">{(u.firstName || u.email || "?")[0].toUpperCase()}</div>
-                }
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-medium text-sm truncate">{u.djName || `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || u.id}</p>
-                  <Badge className={`text-xs ${roleColor[u.role] || "bg-gray-500"}`}>{u.role || "listener"}</Badge>
-                  <Badge variant="outline" className="text-xs">{u.subscriptionTier || "tier-free"}</Badge>
-                  {u.banned && <Badge className="bg-red-500 text-xs">Banned</Badge>}
-                  {u.termsAccepted && <Badge variant="outline" className="text-xs text-green-400 border-green-400/30">ToS ✓</Badge>}
-                </div>
-                <p className="text-xs text-muted-foreground">{u.email}</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <select value={u.role || "listener"} onChange={(e) => roleMut.mutate({ id: u.id, role: e.target.value })}
-                  className="text-xs rounded-md border bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary">
-                  <option value="listener">Listener</option>
-                  <option value="dj">DJ</option>
-                  <option value="songcreator">Song Creator</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <Button variant="outline" size="sm"
-                  className={u.banned ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white text-xs" : "border-red-500 text-red-500 hover:bg-red-500 hover:text-white text-xs"}
-                  onClick={() => banMut.mutate({ id: u.id, banned: !u.banned })}>
-                  <Ban className="w-3 h-3 mr-1" /> {u.banned ? "Unban" : "Ban"}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-/* ── Revenue Dashboard ───────────────────────────────────────────── */
-function RevenueDashboard() {
-  const { data: revenue } = useQuery<any>({ queryKey: ["/api/admin/revenue"] });
-  const stats = [
-    { label: "Total Revenue", value: `₦${parseFloat(revenue?.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: "text-green-400" },
-    { label: "Tip Commissions", value: `₦${parseFloat(revenue?.tipCommissions || 0).toLocaleString()}`, icon: Heart, color: "text-pink-400" },
-    { label: "Sub Commissions", value: `₦${parseFloat(revenue?.subscriptionCommissions || 0).toLocaleString()}`, icon: CreditCard, color: "text-purple-400" },
-    { label: "Total Payouts", value: `₦${parseFloat(revenue?.totalPayouts || 0).toLocaleString()}`, icon: Send, color: "text-cyan-400" },
-    { label: "Total Transactions", value: revenue?.totalTransactions || 0, icon: Activity, color: "text-blue-400" },
-    { label: "Pending Payouts", value: revenue?.pendingPayouts || 0, icon: Clock, color: "text-amber-400" },
-  ];
-  return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-bold flex items-center gap-2"><TrendingUp className="w-5 h-5 text-green-400" /> Revenue Analytics</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {stats.map((s) => (
-          <Card key={s.label} className="geometric-clip">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <s.icon className={`w-4 h-4 ${s.color}`} />
-              </div>
-              <p className="text-xl font-bold">{s.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Card className="geometric-clip border-amber-500/30 bg-amber-500/5">
-        <CardContent className="p-4 text-sm text-amber-400">
-          <strong>Commission Model:</strong> 30% platform fee · 70% to creators · ₦1,000 minimum payout via Paystack
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* ── KYC Verification Center ─────────────────────────────────────── */
-function KYCCenter() {
-  const { toast } = useToast();
-  const { data: applications = [] } = useQuery<any[]>({ queryKey: ["/api/admin/verifications"] });
-
-  const approveMut = useMutation({
-    mutationFn: async ({ id, approved }: { id: string; approved: boolean }) =>
-      (await apiRequest("PATCH", `/api/admin/verification/${id}`, { status: approved ? "approved" : "rejected" })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/verifications"] }); toast({ title: "Verification updated" }); },
-    onError: () => toast({ title: "Failed to update", variant: "destructive" }),
-  });
-
-  const statusIcon = (s: string) => s === "approved" ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : s === "rejected" ? <XCircle className="w-4 h-4 text-red-400" /> : <Clock className="w-4 h-4 text-amber-400" />;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold flex items-center gap-2"><UserCheck className="w-5 h-5 text-cyan-400" /> DJ Verification</h2>
-        <Badge className="bg-amber-500/20 text-amber-400">{applications.filter((a: any) => a.status === "pending").length} pending</Badge>
-      </div>
-      {applications.length === 0 && (
-        <Card><CardContent className="p-10 text-center text-muted-foreground">
-          <UserCheck className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p>No verification applications yet</p>
-        </CardContent></Card>
-      )}
-      {applications.map((app: any) => (
-        <Card key={app.id} className="geometric-clip">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <p className="font-semibold text-sm">{app.djName || app.userId}</p>
-                  <div className="flex items-center gap-1">{statusIcon(app.status)}<span className="text-xs capitalize">{app.status}</span></div>
-                </div>
-                {app.bio && <p className="text-sm text-muted-foreground mb-2 line-clamp-3">{app.bio}</p>}
-                {app.socialLink && <a href={app.socialLink} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1"><Eye className="w-3 h-3" /> {app.socialLink}</a>}
-                <p className="text-xs text-muted-foreground mt-1">{app.createdAt ? new Date(app.createdAt).toLocaleDateString() : ""}</p>
-              </div>
-              {app.status === "pending" && (
-                <div className="flex flex-col gap-2 flex-shrink-0">
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs" onClick={() => approveMut.mutate({ id: app.id, approved: true })}>
-                    <CheckCircle2 className="w-3 h-3 mr-1" /> Approve
-                  </Button>
-                  <Button size="sm" variant="outline" className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white text-xs" onClick={() => approveMut.mutate({ id: app.id, approved: false })}>
-                    <XCircle className="w-3 h-3 mr-1" /> Reject
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-/* ── Payout Center ───────────────────────────────────────────────── */
-function PayoutCenter() {
-  const { toast } = useToast();
-  const { data: pendingPayouts = [] } = useQuery<any[]>({ queryKey: ["/api/admin/payouts/pending"] });
-
-  const approveMut = useMutation({
-    mutationFn: async (payoutId: string) => (await apiRequest("POST", `/api/admin/payout/${payoutId}/approve`, {})).json(),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
-      toast({ title: "Payout approved!", description: data.message || "Transfer initiated via Paystack" });
+/* ── Admin Auth Hook ──────────────────────────────────────────────── */
+function useAdminAuth() {
+  const { data: admin, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/auth/me"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/auth/me", { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
     },
-    onError: (err: any) => toast({ title: "Payout failed", description: err.message, variant: "destructive" }),
+    retry: false,
+    staleTime: 60_000,
   });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-green-400" /> Payout Center</h2>
-        <Badge className="bg-amber-500/20 text-amber-400">{pendingPayouts.length} pending</Badge>
-      </div>
-      <Card className="geometric-clip bg-green-500/5 border-green-500/30">
-        <CardContent className="p-4 text-sm">
-          <p className="font-semibold text-green-400 mb-1">Paystack Transfers</p>
-          <p className="text-muted-foreground text-xs">Approving a payout initiates an automatic Paystack transfer to the creator's registered bank account. Requires PAYSTACK_SECRET_KEY to be configured.</p>
-        </CardContent>
-      </Card>
-      {pendingPayouts.length === 0 && (
-        <Card><CardContent className="p-10 text-center text-muted-foreground">
-          <CheckCircle2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p>No pending payouts</p>
-        </CardContent></Card>
-      )}
-      {pendingPayouts.map((payout: any) => (
-        <Card key={payout.id} className="geometric-clip">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3 flex-wrap">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-semibold text-sm">{payout.djName || payout.userId}</p>
-                  <Badge variant="outline" className="text-xs">{payout.status}</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">{payout.email}</p>
-                {payout.bankAccount && <p className="text-xs text-muted-foreground mt-1">Bank: {payout.bankAccount}</p>}
-                {payout.bankCode && <p className="text-xs text-muted-foreground">Code: {payout.bankCode}</p>}
-                <p className="text-xs text-muted-foreground">{payout.requestedAt ? new Date(payout.requestedAt).toLocaleDateString() : ""}</p>
-              </div>
-              <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                <p className="text-xl font-bold text-green-400">₦{parseFloat(payout.amount || 0).toLocaleString()}</p>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs"
-                  onClick={() => approveMut.mutate(payout.id)}
-                  disabled={approveMut.isPending}>
-                  <Send className="w-3 h-3 mr-1" />
-                  {approveMut.isPending ? "Processing..." : "Approve & Transfer"}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  return { admin: admin ?? null, isLoading };
 }
 
-/* ── Audit Logs ──────────────────────────────────────────────────── */
-function AuditLogs() {
-  const { data: logs = [] } = useQuery<any[]>({ queryKey: ["/api/admin/audit-logs"] });
-  const getColor = (action: string) => {
-    if (action?.includes("ban")) return "text-red-400";
-    if (action?.includes("approve") || action?.includes("payout")) return "text-green-400";
-    if (action?.includes("reject")) return "text-amber-400";
-    return "text-cyan-400";
+/* ── Status Badge ─────────────────────────────────────────────────── */
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { color: string; icon: React.ReactNode }> = {
+    ok: { color: "bg-green-500/20 text-green-400 border-green-500/30", icon: <CheckCircle className="w-3 h-3" /> },
+    configured: { color: "bg-green-500/20 text-green-400 border-green-500/30", icon: <CheckCircle className="w-3 h-3" /> },
+    error: { color: "bg-red-500/20 text-red-400 border-red-500/30", icon: <XCircle className="w-3 h-3" /> },
+    not_configured: { color: "bg-gray-500/20 text-gray-400 border-gray-500/30", icon: <AlertTriangle className="w-3 h-3" /> },
+    unknown: { color: "bg-amber-500/20 text-amber-400 border-amber-500/30", icon: <Clock className="w-3 h-3" /> },
   };
+  const s = map[status] ?? map.unknown;
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold flex items-center gap-2"><FileText className="w-5 h-5 text-blue-400" /> Audit Logs</h2>
-        <Button variant="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/audit-logs"] })}>
-          <RefreshCw className="w-4 h-4" />
-        </Button>
-      </div>
-      {logs.length === 0 && (
-        <Card><CardContent className="p-10 text-center text-muted-foreground">
-          <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p>No audit events yet</p>
-        </CardContent></Card>
-      )}
-      <div className="space-y-2">
-        {logs.map((log: any, i: number) => (
-          <Card key={log.id || i} className="geometric-clip">
-            <CardContent className="p-3 flex items-start gap-3">
-              <div className="w-1 h-full min-h-8 rounded-full bg-border flex-shrink-0 self-stretch" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-sm font-semibold ${getColor(log.action)}`}>{log.action}</span>
-                  <span className="text-xs text-muted-foreground">{log.adminEmail || "admin"}</span>
-                </div>
-                {log.details && <p className="text-xs text-muted-foreground mt-0.5 truncate">{typeof log.details === "string" ? log.details : JSON.stringify(log.details)}</p>}
-              </div>
-              <span className="text-xs text-muted-foreground flex-shrink-0">{log.createdAt ? new Date(log.createdAt).toLocaleString() : ""}</span>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
+    <Badge className={`gap-1 text-xs ${s.color}`}>
+      {s.icon} {status.replace("_", " ")}
+    </Badge>
   );
 }
 
 /* ── Platform Health ─────────────────────────────────────────────── */
 function PlatformHealth() {
-  const { data: health } = useQuery<any>({
+  const { data: health, isLoading, refetch, isFetching } = useQuery<any>({
     queryKey: ["/api/admin/health"],
-    refetchInterval: 30000,
+    queryFn: async () => {
+      const r = await fetch("/api/admin/health", { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to fetch health");
+      return r.json();
+    },
+    staleTime: 30_000,
   });
 
-  const checks = [
-    { name: "API Server", status: "ok", icon: Server },
-    { name: "MongoDB", status: health?.mongodb || "unknown", icon: Database },
-    { name: "PostgreSQL", status: health?.postgres || "unknown", icon: Database },
-    { name: "Paystack", status: health?.paystack || "unknown", icon: CreditCard },
-    { name: "WebSocket", status: health?.websocket || "ok", icon: Wifi },
-  ];
-
-  const getStatusColor = (s: string) => s === "ok" ? "text-green-400" : s === "unknown" ? "text-gray-400" : "text-red-400";
+  const uptime = health?.uptime ? `${Math.floor(health.uptime / 3600)}h ${Math.floor((health.uptime % 3600) / 60)}m` : "—";
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold flex items-center gap-2"><Activity className="w-5 h-5 text-cyan-400" /> Platform Health</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {checks.map((c) => (
-          <Card key={c.name} className="geometric-clip">
-            <CardContent className="p-4 flex items-center gap-3">
-              <c.icon className={`w-8 h-8 ${getStatusColor(c.status)} flex-shrink-0`} />
-              <div>
-                <p className="text-sm font-medium">{c.name}</p>
-                <p className={`text-xs ${getStatusColor(c.status)} capitalize`}>{c.status}</p>
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold">Platform Health</h2>
+        <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-32">
+          <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Server className="w-4 h-4 text-primary" /> Server Status
               </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Uptime</span><span>{uptime}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">WebSocket</span><StatusBadge status={health?.websocket || "unknown"} /></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Last checked</span><span className="text-xs">{health?.timestamp ? new Date(health.timestamp).toLocaleTimeString() : "—"}</span></div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Database className="w-4 h-4 text-purple-400" /> Databases
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">PostgreSQL</span><StatusBadge status={health?.postgres || "unknown"} /></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">MongoDB</span><StatusBadge status={health?.mongodb || "unknown"} /></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Paystack</span><StatusBadge status={health?.paystack || "unknown"} /></div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Revenue Dashboard ────────────────────────────────────────────── */
+function RevenueDashboard() {
+  const { data: revenue } = useQuery<any>({ queryKey: ["/api/admin/revenue"], queryFn: async () => { const r = await fetch("/api/admin/revenue", { credentials: "include" }); if (!r.ok) return {}; return r.json(); } });
+  const { data: transactions } = useQuery<any[]>({ queryKey: ["/api/admin/transactions"], queryFn: async () => { const r = await fetch("/api/admin/transactions", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+
+  const txList = transactions || [];
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">Revenue & Transactions</h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Total Revenue", val: `₦${(revenue?.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: "text-green-400" },
+          { label: "Platform Fees", val: `₦${(revenue?.platformFees || 0).toLocaleString()}`, icon: TrendingUp, color: "text-cyan-400" },
+          { label: "Transactions", val: txList.length.toLocaleString(), icon: CreditCard, color: "text-purple-400" },
+          { label: "This Month", val: `₦${(revenue?.monthlyRevenue || 0).toLocaleString()}`, icon: BarChart3, color: "text-amber-400" },
+        ].map(({ label, val, icon: Icon, color }) => (
+          <Card key={label}>
+            <CardContent className="p-4">
+              <Icon className={`w-4 h-4 mb-1 ${color}`} />
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="font-bold text-lg">{val}</p>
             </CardContent>
           </Card>
         ))}
       </div>
-      {health?.uptime && (
-        <Card className="geometric-clip">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Server Uptime</p>
-            <p className="text-xl font-bold">{Math.floor(health.uptime / 3600)}h {Math.floor((health.uptime % 3600) / 60)}m</p>
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Recent Transactions</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {txList.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No transactions yet</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {txList.slice(0, 20).map((tx: any) => (
+                <div key={tx.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                  <div>
+                    <p className="font-medium capitalize">{tx.type || "payment"}</p>
+                    <p className="text-xs text-muted-foreground">{tx.paymentMethod} · {new Date(tx.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium">₦{parseFloat(tx.amount || "0").toLocaleString()}</p>
+                    <Badge variant="outline" className="text-xs">{tx.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ── User Management ─────────────────────────────────────────────── */
+function UserManagement() {
+  const { data: users } = useQuery<any[]>({ queryKey: ["/api/admin/users"], queryFn: async () => { const r = await fetch("/api/admin/users", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+
+  const allUsers = (users || []).filter((u: any) =>
+    !search || u.email?.toLowerCase().includes(search.toLowerCase()) || u.firstName?.toLowerCase().includes(search.toLowerCase()) || u.djName?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  async function updateRole(userId: string, role: string) {
+    try {
+      await fetch(`/api/admin/users/${userId}/role`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ role }) });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Role updated" });
+    } catch { toast({ title: "Failed to update role", variant: "destructive" }); }
+  }
+
+  async function banUser(userId: string, banned: boolean) {
+    try {
+      await fetch(`/api/admin/users/${userId}/ban`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ banned }) });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: banned ? "User suspended" : "User reactivated" });
+    } catch { toast({ title: "Failed", variant: "destructive" }); }
+  }
+
+  const ROLES = ["listener", "dj", "broadcaster", "songcreator", "admin", "super_admin"];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <h2 className="font-semibold flex-1">User Management</h2>
+        <Input placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs" />
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          {allUsers.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No users found</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {allUsers.slice(0, 50).map((u: any) => (
+                <div key={u.id} className="px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{u.firstName} {u.lastName} {u.djName ? `· ${u.djName}` : ""}</p>
+                    <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                  </div>
+                  <Badge variant="outline" className="text-xs">{u.role || "listener"}</Badge>
+                  <div className="flex gap-1.5">
+                    <select
+                      className="text-xs bg-background border border-border rounded px-1 py-0.5"
+                      value={u.role || "listener"}
+                      onChange={(e) => updateRole(u.id, e.target.value)}
+                    >
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => banUser(u.id, !u.isBanned)}>
+                      {u.isBanned ? "Unban" : <Ban className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ── KYC Center ───────────────────────────────────────────────────── */
+function KYCCenter() {
+  const { data: verifs } = useQuery<any[]>({ queryKey: ["/api/admin/verifications"], queryFn: async () => { const r = await fetch("/api/admin/verifications", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  async function decide(id: string, status: "approved" | "rejected") {
+    try {
+      await fetch(`/api/admin/verification/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ status }) });
+      qc.invalidateQueries({ queryKey: ["/api/admin/verifications"] });
+      toast({ title: `Verification ${status}` });
+    } catch { toast({ title: "Failed", variant: "destructive" }); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">KYC / DJ Verification</h2>
+      <Card>
+        <CardContent className="p-0">
+          {(verifs || []).length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No pending verifications</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {(verifs || []).map((v: any) => (
+                <div key={v.id} className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-sm">{v.djName || v.userId}</p>
+                      <p className="text-xs text-muted-foreground">{v.bio?.slice(0, 120)}{v.bio?.length > 120 ? "…" : ""}</p>
+                      {v.socialLink && <a href={v.socialLink} target="_blank" rel="noreferrer" className="text-xs text-primary">{v.socialLink}</a>}
+                    </div>
+                    <Badge className={v.status === "pending" ? "bg-amber-500/20 text-amber-400" : v.status === "approved" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}>{v.status}</Badge>
+                  </div>
+                  {v.status === "pending" && (
+                    <div className="flex gap-2">
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs" onClick={() => decide(v.id, "approved")}>Approve</Button>
+                      <Button size="sm" variant="destructive" className="text-xs" onClick={() => decide(v.id, "rejected")}>Reject</Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ── Payout Center ────────────────────────────────────────────────── */
+function PayoutCenter() {
+  const { data: payouts } = useQuery<any[]>({ queryKey: ["/api/admin/payouts/pending"], queryFn: async () => { const r = await fetch("/api/admin/payouts/pending", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  async function approve(payoutId: string) {
+    try {
+      const r = await fetch(`/api/admin/payout/${payoutId}/approve`, { method: "POST", credentials: "include" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message);
+      qc.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
+      toast({ title: "Payout approved", description: d.message });
+    } catch (e: any) { toast({ title: "Failed", description: e.message, variant: "destructive" }); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">Payout Center</h2>
+      <Card>
+        <CardContent className="p-0">
+          {(payouts || []).length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No pending payouts</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {(payouts || []).map((p: any) => (
+                <div key={p.id} className="p-4 flex flex-wrap items-center gap-3">
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{p.djName || p.userId}</p>
+                    <p className="text-xs text-muted-foreground">{p.email} · {p.bankAccount || "No bank linked"}</p>
+                  </div>
+                  <p className="font-bold">₦{parseFloat(p.amount || "0").toLocaleString()}</p>
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs" onClick={() => approve(p.id)}>Approve & Transfer</Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ── Audit Logs ───────────────────────────────────────────────────── */
+function AuditLogs() {
+  const { data: logs } = useQuery<any[]>({ queryKey: ["/api/admin/audit-logs"], queryFn: async () => { const r = await fetch("/api/admin/audit-logs", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">Audit Logs</h2>
+      <Card>
+        <CardContent className="p-0">
+          {(logs || []).length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No audit logs yet</div>
+          ) : (
+            <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
+              {(logs || []).map((l: any, i: number) => (
+                <div key={l.id || i} className="px-4 py-3 text-sm">
+                  <div className="flex justify-between items-start">
+                    <p className="font-medium capitalize">{l.action?.replace(/_/g, " ")}</p>
+                    <span className="text-xs text-muted-foreground">{new Date(l.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{l.adminEmail || l.adminId} · {l.ipAddress || ""}</p>
+                  {l.details && Object.keys(l.details).length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">{JSON.stringify(l.details).slice(0, 120)}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 /* ── Fraud Detection ─────────────────────────────────────────────── */
 function FraudDetection() {
-  const { data: users = [] } = useQuery<any[]>({ queryKey: ["/api/admin/users"] });
-  const { toast } = useToast();
-
-  const suspicious = users.filter((u: any) =>
-    u.totalStreams > 10000 || (u.achievementPoints > 5000 && u.totalStreamTime < 10)
-  );
-
+  const { data: fraud } = useQuery<any>({ queryKey: ["/api/admin/fraud"], queryFn: async () => { const r = await fetch("/api/admin/fraud", { credentials: "include" }); if (!r.ok) return {}; return r.json(); } });
+  const suspicious = fraud?.suspiciousAccounts || [];
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold flex items-center gap-2"><Flag className="w-5 h-5 text-red-400" /> Fraud Detection</h2>
-      <Card className="geometric-clip bg-amber-500/5 border-amber-500/30">
-        <CardContent className="p-4 text-sm text-amber-400">
-          Auto-detects accounts with suspiciously high stream counts relative to actual listening time.
+      <h2 className="font-semibold">Fraud Detection</h2>
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Flagged Accounts", val: suspicious.length, color: "text-red-400" },
+              { label: "Resolved Cases", val: fraud?.resolvedCases || 0, color: "text-green-400" },
+              { label: "Open Cases", val: fraud?.openCases || 0, color: "text-amber-400" },
+            ].map(({ label, val, color }) => (
+              <div key={label} className="text-center">
+                <p className={`text-2xl font-bold ${color}`}>{val}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
-      {suspicious.length === 0 ? (
-        <Card><CardContent className="p-10 text-center">
-          <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-green-400" />
-          <p className="font-semibold">No suspicious activity detected</p>
-        </CardContent></Card>
-      ) : suspicious.map((u: any) => (
-        <Card key={u.id} className="geometric-clip border-red-500/30">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <p className="font-semibold text-sm">{u.djName || u.email || u.id}</p>
-                <p className="text-xs text-muted-foreground">Streams: {u.totalStreams} · Points: {u.achievementPoints} · Time: {u.totalStreamTime}m</p>
-              </div>
-              <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
-                <AlertTriangle className="w-3 h-3 mr-1" /> Suspicious
-              </Badge>
+      {suspicious.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Flagged Accounts</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {suspicious.map((a: any) => (
+                <div key={a.userId} className="px-4 py-3 text-sm flex justify-between">
+                  <div>
+                    <p className="font-medium">{a.userId}</p>
+                    <p className="text-xs text-muted-foreground">{a.reason}</p>
+                  </div>
+                  <Badge className="bg-red-500/20 text-red-400">Flagged</Badge>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
-      ))}
+      )}
     </div>
   );
 }
 
-/* ── Settings ────────────────────────────────────────────────────── */
+/* ── Admin Accounts (Founder only) ───────────────────────────────── */
+function AdminAccounts({ role }: { role: string }) {
+  const { data: accounts } = useQuery<any[]>({ queryKey: ["/api/admin/accounts"], queryFn: async () => { const r = await fetch("/api/admin/accounts", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", password: "", role: "admin" });
+  const [showPw, setShowPw] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  async function createAdmin(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      const r = await fetch("/api/admin/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(form) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message);
+      qc.invalidateQueries({ queryKey: ["/api/admin/accounts"] });
+      setForm({ firstName: "", lastName: "", email: "", password: "", role: "admin" });
+      toast({ title: "Admin created" });
+    } catch (e: any) { toast({ title: "Failed", description: e.message, variant: "destructive" }); }
+    setCreating(false);
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Remove admin role from this user?")) return;
+    await fetch(`/api/admin/accounts/${id}`, { method: "DELETE", credentials: "include" });
+    qc.invalidateQueries({ queryKey: ["/api/admin/accounts"] });
+    toast({ title: "Admin removed" });
+  }
+
+  if (role !== "founder") {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
+        <p>Admin account management is restricted to the Founder.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-semibold">Admin Accounts</h2>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><UserPlus className="w-4 h-4" /> Add Admin</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={createAdmin} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input placeholder="First name" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} required />
+            <Input placeholder="Last name" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} />
+            <Input type="email" placeholder="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+            <div className="relative">
+              <Input type={showPw ? "text" : "password"} placeholder="Password (min 8 chars)" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required className="pr-10" />
+              <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Eye className="w-4 h-4" /></button>
+            </div>
+            <select className="rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+              <option value="moderator">Moderator</option>
+              <option value="admin">Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+            <Button type="submit" disabled={creating} className="md:col-span-1">
+              {creating ? "Creating…" : "Create Admin"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Current Admins</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {(accounts || []).length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground text-sm">No admin accounts yet</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {(accounts || []).map((a: any) => (
+                <div key={a.id} className="px-4 py-3 flex items-center gap-3 text-sm">
+                  <div className="flex-1">
+                    <p className="font-medium">{a.firstName} {a.lastName}</p>
+                    <p className="text-xs text-muted-foreground">{a.email}</p>
+                  </div>
+                  <Badge variant="outline" className="text-xs capitalize">{a.role}</Badge>
+                  {a.role !== "founder" && (
+                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-destructive" onClick={() => remove(a.id)}>
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ── Platform Settings ────────────────────────────────────────────── */
 function PlatformSettings() {
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold">Platform Settings</h2>
-      <Card className="geometric-clip">
-        <CardContent className="p-6 space-y-4">
-          {[
-            { label: "Platform Commission (Tips)", value: "30%" },
-            { label: "Platform Commission (Subscriptions)", value: "30%" },
-            { label: "Creator Share (All Types)", value: "70%" },
-            { label: "Minimum Payout Amount", value: "₦1,000" },
-            { label: "Payment Provider", value: "Paystack (NGN)" },
-            { label: "Free Tier Mixer Limit", value: "4 channels" },
-            { label: "Free Tier Download Limit", value: "5 downloads total" },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-              <span className="text-sm text-muted-foreground">{item.label}</span>
-              <span className="font-medium">{item.value}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-      <Card className="geometric-clip border-amber-500/30 bg-amber-500/5">
-        <CardContent className="p-4">
-          <p className="text-sm text-amber-500 font-medium">
-            Settings are configured in <code className="text-xs bg-amber-500/20 px-1 rounded">server/routes.ts</code> and environment variables.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card className="geometric-clip">
-        <CardHeader><CardTitle className="text-base">Subscription Tiers</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {[
-            { id: "tier-free", name: "Free", price: "₦0", downloads: 5, mixers: 4 },
-            { id: "tier-basic", name: "Premium Lite", price: "₦1,400/mo", downloads: 30, mixers: 6 },
-            { id: "tier-pro", name: "Creator Pro", price: "₦5,000/mo", downloads: 100, mixers: 10 },
-            { id: "tier-premium", name: "Studio Master", price: "₦15,000/mo", downloads: 1000, mixers: 20 },
-            { id: "tier-elite", name: "Elite Agency", price: "₦50,000/mo", downloads: -1, mixers: 999 },
-          ].map((t) => (
-            <div key={t.id} className="flex items-center justify-between text-sm py-2 border-b border-border last:border-0">
-              <div>
-                <span className="font-medium">{t.name}</span>
-                <span className="text-xs text-muted-foreground ml-2">{t.price}</span>
+      <h2 className="font-semibold">Platform Settings</h2>
+      <div className="grid gap-4">
+        {[
+          { label: "2FA Enforcement", desc: "Require 2FA for all admin accounts (groundwork ready — integration pending)", status: "planned" },
+          { label: "Session Timeout", desc: "Admin sessions expire after 8 hours of inactivity", status: "active" },
+          { label: "Audit Logging", desc: "All admin actions are logged with IP and timestamp", status: "active" },
+          { label: "Rate Limiting", desc: "Login attempts capped at 10/15min per IP", status: "active" },
+          { label: "Paystack Webhooks", desc: "Webhook signature verification enabled for payment events", status: "active" },
+        ].map(({ label, desc, status }) => (
+          <Card key={label}>
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className="flex-1">
+                <p className="font-medium text-sm">{label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
               </div>
-              <div className="text-xs text-muted-foreground">
-                {t.downloads === -1 ? "∞ downloads" : `${t.downloads} DL`} · {t.mixers === 999 ? "∞ mixers" : `${t.mixers} mix`}
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+              <Badge className={status === "active" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}>
+                {status}
+              </Badge>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* ── Main Admin Page ─────────────────────────────────────────────── */
+/* ── Admin Role Hierarchy Panel ──────────────────────────────────── */
+function RoleHierarchy() {
+  const roles = [
+    { name: "Founder", badge: "bg-amber-500/20 text-amber-400", perms: ["Full platform control", "Create/remove admins", "Founder-only bootstrap", "Password resets", "Billing & infrastructure"] },
+    { name: "Super Admin", badge: "bg-purple-500/20 text-purple-400", perms: ["All admin actions", "User management", "Payout approvals", "KYC review", "Fraud management"] },
+    { name: "Admin", badge: "bg-blue-500/20 text-blue-400", perms: ["User management", "KYC review", "Payout review", "Audit log access"] },
+    { name: "Moderator", badge: "bg-gray-500/20 text-gray-400", perms: ["Content moderation", "Fraud flags", "Audit log view"] },
+  ];
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">Role Hierarchy</h2>
+      <div className="grid gap-3 md:grid-cols-2">
+        {roles.map(({ name, badge, perms }) => (
+          <Card key={name}>
+            <CardContent className="p-4 space-y-2">
+              <Badge className={badge}>{name}</Badge>
+              <ul className="space-y-1">
+                {perms.map(p => (
+                  <li key={p} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" /> {p}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Admin Portal ────────────────────────────────────────────── */
 export default function AdminPage() {
-  const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const { admin, isLoading } = useAdminAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  async function handleLogout() {
+    await fetch("/api/admin/auth/logout", { method: "POST", credentials: "include" });
+    qc.invalidateQueries({ queryKey: ["/api/admin/auth/me"] });
+    setLocation("/admin/login");
+    toast({ title: "Logged out from admin portal" });
+  }
 
   if (isLoading) {
     return (
@@ -440,77 +577,81 @@ export default function AdminPage() {
     );
   }
 
-  if (!user) {
+  if (!admin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="max-w-md w-full mx-4">
-          <CardContent className="p-8 text-center">
-            <Shield className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-            <h1 className="text-2xl font-bold mb-2">Admin Access Required</h1>
-            <p className="text-muted-foreground mb-6">Please log in to access the owner dashboard</p>
-            <Button onClick={() => setLocation("/login")} className="w-full">
-              <LogIn className="w-4 h-4 mr-2" /> Log In
-            </Button>
+          <CardContent className="p-8 text-center space-y-4">
+            <Shield className="w-16 h-16 mx-auto text-muted-foreground" />
+            <h1 className="text-2xl font-bold">Admin Portal</h1>
+            <p className="text-muted-foreground">Authentication required.</p>
+            <Button onClick={() => setLocation("/admin/login")} className="w-full">Sign in to Admin Portal</Button>
+            <p className="text-xs text-muted-foreground">
+              First time?{" "}
+              <a href="/admin/setup" className="text-primary hover:underline">Create founder account</a>
+            </p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  const userEmail = (user as any)?.email || "";
-  const isOwner = userEmail === OWNER_EMAIL || (user as any)?.role === "admin";
+  const role = (admin as any)?.role || "admin";
+  const isFounder = role === "founder";
+  const displayName = [(admin as any)?.firstName, (admin as any)?.lastName].filter(Boolean).join(" ") || (admin as any)?.email;
 
-  if (!isOwner) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="max-w-md w-full mx-4">
-          <CardContent className="p-8 text-center">
-            <Shield className="w-16 h-16 mx-auto mb-4 text-red-500" />
-            <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
-            <p className="text-muted-foreground mb-6">This dashboard is restricted to the platform owner.</p>
-            <Button variant="outline" onClick={() => setLocation("/home")} className="w-full">Back to Home</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const roleColors: Record<string, string> = {
+    founder: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    super_admin: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+    admin: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    moderator: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+  };
 
   return (
     <div className="min-h-screen bg-background pb-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center gap-3 p-6 border-b border-border bg-card/50">
-          <Crown className="w-8 h-8 text-amber-500" />
-          <div>
-            <h1 className="text-2xl font-bold">Founder Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Full platform control · STINE Admin</p>
+        {/* Admin Portal Header */}
+        <div className="flex items-center gap-3 p-4 md:p-6 border-b border-border bg-card/50 sticky top-0 z-10">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+            <Crown className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-              <Zap className="w-3 h-3 mr-1" /> Platform Owner
-            </Badge>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold leading-tight">STINE Admin Portal</h1>
+            <p className="text-xs text-muted-foreground truncate">Signed in as {displayName}</p>
           </div>
+          <Badge className={roleColors[role] || roleColors.admin}>
+            <Zap className="w-3 h-3 mr-1" /> {role.replace("_", " ")}
+          </Badge>
+          <Button variant="outline" size="sm" onClick={handleLogout} className="gap-1.5">
+            <LogOut className="w-3.5 h-3.5" /> Sign out
+          </Button>
         </div>
 
+        {/* Portal Tabs */}
         <div className="p-4 md:p-6">
-          <Tabs defaultValue="revenue">
+          <Tabs defaultValue="health">
             <TabsList className="flex flex-wrap gap-1 h-auto mb-6">
+              <TabsTrigger value="health" className="gap-1.5 text-xs"><Activity className="w-3.5 h-3.5" /> Health</TabsTrigger>
               <TabsTrigger value="revenue" className="gap-1.5 text-xs"><BarChart3 className="w-3.5 h-3.5" /> Revenue</TabsTrigger>
               <TabsTrigger value="users" className="gap-1.5 text-xs"><Users className="w-3.5 h-3.5" /> Users</TabsTrigger>
               <TabsTrigger value="kyc" className="gap-1.5 text-xs"><UserCheck className="w-3.5 h-3.5" /> KYC</TabsTrigger>
               <TabsTrigger value="payouts" className="gap-1.5 text-xs"><CreditCard className="w-3.5 h-3.5" /> Payouts</TabsTrigger>
               <TabsTrigger value="audit" className="gap-1.5 text-xs"><FileText className="w-3.5 h-3.5" /> Audit</TabsTrigger>
-              <TabsTrigger value="health" className="gap-1.5 text-xs"><Activity className="w-3.5 h-3.5" /> Health</TabsTrigger>
               <TabsTrigger value="fraud" className="gap-1.5 text-xs"><Flag className="w-3.5 h-3.5" /> Fraud</TabsTrigger>
+              {isFounder && <TabsTrigger value="admins" className="gap-1.5 text-xs"><Key className="w-3.5 h-3.5" /> Admins</TabsTrigger>}
+              <TabsTrigger value="roles" className="gap-1.5 text-xs"><Shield className="w-3.5 h-3.5" /> Roles</TabsTrigger>
               <TabsTrigger value="settings" className="gap-1.5 text-xs"><Settings className="w-3.5 h-3.5" /> Settings</TabsTrigger>
             </TabsList>
 
+            <TabsContent value="health"><PlatformHealth /></TabsContent>
             <TabsContent value="revenue"><RevenueDashboard /></TabsContent>
             <TabsContent value="users"><UserManagement /></TabsContent>
             <TabsContent value="kyc"><KYCCenter /></TabsContent>
             <TabsContent value="payouts"><PayoutCenter /></TabsContent>
             <TabsContent value="audit"><AuditLogs /></TabsContent>
-            <TabsContent value="health"><PlatformHealth /></TabsContent>
             <TabsContent value="fraud"><FraudDetection /></TabsContent>
+            {isFounder && <TabsContent value="admins"><AdminAccounts role={role} /></TabsContent>}
+            <TabsContent value="roles"><RoleHierarchy /></TabsContent>
             <TabsContent value="settings"><PlatformSettings /></TabsContent>
           </Tabs>
         </div>
