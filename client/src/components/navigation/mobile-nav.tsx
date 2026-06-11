@@ -7,10 +7,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Home, Search, Library, Radio, SlidersHorizontal, Mic2, BarChart3,
-  Crown, User, Bell, LogOut, Menu, X, Headphones, Shield
+  Crown, User, Bell, LogOut, Menu, X, Headphones
 } from "lucide-react";
-
-const OWNER_EMAIL = import.meta.env.VITE_OWNER_EMAIL || "beyin365@gmail.com";
 
 interface NavItem {
   path: string;
@@ -38,9 +36,6 @@ export function MobileNav() {
   const [location, setLocation] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user } = useAuth();
-
-  const userEmail = (user as any)?.email || "";
-  const isOwner = userEmail === OWNER_EMAIL || (user as any)?.role === "admin";
 
   const isActive = (path: string) => {
     if (path === "/home" && location === "/") return true;
@@ -97,11 +92,6 @@ export function MobileNav() {
           </Badge>
           {displayName && (
             <span className="text-xs text-muted-foreground hidden lg:block">{displayName}</span>
-          )}
-          {isOwner && (
-            <Button variant="ghost" size="sm" onClick={() => setLocation("/admin")} title="Owner Dashboard">
-              <Shield className="w-4 h-4 text-amber-500" />
-            </Button>
           )}
           <Button variant="ghost" size="sm" onClick={() => setLocation("/notifications")}>
             <Bell className="w-4 h-4" />
@@ -182,18 +172,6 @@ export function MobileNav() {
               );
             })}
           </div>
-          {isOwner && (
-            <div className="pt-2 border-t border-border">
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-3"
-                onClick={() => { setLocation("/admin"); setMobileMenuOpen(false); }}
-              >
-                <Shield className="w-5 h-5 text-amber-500" />
-                Owner Dashboard
-              </Button>
-            </div>
-          )}
           <div className="border-t border-border pt-2">
             <Button variant="ghost" className="w-full justify-start gap-3" onClick={handleLogout}>
               <LogOut className="w-5 h-5 text-muted-foreground" />

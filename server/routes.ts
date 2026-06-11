@@ -4,9 +4,14 @@ import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { registerAdminAuthRoutes, isAdminAuthenticated } from "./adminAuth";
+
 import { insertTrackSchema, insertStreamSchema, insertChatMessageSchema, insertSongRequestSchema, insertTipSchema } from "@shared/schema";
 import { categorizeListeners } from "./openai";
 import { initializePaystackCharge, verifyPaystackTransaction } from "./paystackClient";
+
+// Tracks live WebSocket server status for the health endpoint
+let _wssConnectedClients = 0;
+let _wssStarted = false;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -1089,20 +1094,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // PLATFORM HEALTH
+  // PLATFORM HEALTH  (admin-session authenticated)
   // ─────────────────────────────────────────────────────────────────────────
-  app.get('/api/admin/health', isAuthenticated, isAdmin, async (_req, res) => {
+  app.get('/api/admin/health', isAdminAuthenticated, async (_req, res) => {
     try {
       const { mongoDb, pool } = await import('./db');
-      const health: any = { uptime: process.uptime(), websocket: "ok", timestamp: new Date() };
-      // MongoDB
-      try { mongoDb ? (await mongoDb.command({ ping: 1 }), health.mongodb = "ok") : (health.mongodb = "not_configured"); }
-      catch { health.mongodb = "error"; }
-      // PostgreSQL
-      try { pool ? (await pool.query("SELECT 1"), health.postgres = "ok") : (health.postgres = "not_configured"); }
-      catch { health.postgres = "error"; }
-      // Paystack
-      health.paystack = process.env.PAYSTACK_SECRET_KEY ? "configured" : "not_configured";
+      const health: any = {
+        uptime: process.uptime(),
+        timestamp: new Date(),
+        websocket: _wssStarted ? (_wssConnectedClients >= 0 ? "ok" : "error") : "not_configured",
+        websocketClients: _wssConnectedClients,
+      };
+
+      // PostgreSQL — real SELECT 1 ping
+      if (pool) {
+        try {
+          const result = await pool.query("SELECT 1 AS ok");
+          health.postgres = result.rows?.[0]?.ok === 1 ? "ok" : "error";
+        } catch {
+          health.postgres = "error";
+        }
+      } else {
+        health.postgres = "not_configured";
+      }
+
+      // MongoDB — real ping command
+      if (mongoDb) {
+        try {
+          const ping = await mongoDb.command({ ping: 1 });
+          health.mongodb = ping?.ok === 1 ? "ok" : "error";
+        } catch {
+          health.mongodb = "error";
+        }
+      } else {
+        health.mongodb = "not_configured";
+      }
+
+      // Paystack — verify key exists AND hit the API
+      if (process.env.PAYSTACK_SECRET_KEY) {
+        try {
+          const paystackRes = await fetch("https://api.paystack.co/balance", {
+            headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          health.paystack = paystackRes.ok ? "ok" : "error";
+          health.paystackStatus = paystackRes.status;
+        } catch {
+          health.paystack = "error";
+        }
+      } else {
+        health.paystack = "not_configured";
+      }
+
       res.json(health);
     } catch (error) {
       res.status(500).json({ message: "Health check failed" });
@@ -1283,11 +1326,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // WebSocket setup for real-time chat
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  _wssStarted = true;
   
   // Store connected clients with stream associations
   const streamConnections = new Map<string, Set<WebSocket>>();
 
   wss.on('connection', (ws: WebSocket, req) => {
+    _wssConnectedClients = wss.clients.size;
     let currentStreamId: string | null = null;
     
     ws.on('message', async (data: Buffer) => {
@@ -1347,6 +1392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     ws.on('close', async () => {
+      _wssConnectedClients = Math.max(0, wss.clients.size - 1);
       if (currentStreamId && streamConnections.has(currentStreamId)) {
         streamConnections.get(currentStreamId)!.delete(ws);
         

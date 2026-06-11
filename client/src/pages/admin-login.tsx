@@ -5,17 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Eye, EyeOff, Lock, Mail, ArrowLeft } from "lucide-react";
+import { Shield, Eye, EyeOff, Lock, Mail, ArrowLeft, Smartphone } from "lucide-react";
+
+type Step = "login" | "2fa" | "forgot";
 
 export default function AdminLoginPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [step, setStep] = useState<Step>("login");
+
+  // Login fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showForgot, setShowForgot] = useState(false);
+
+  // 2FA fields
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [tempToken, setTempToken] = useState("");
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+
+  // Forgot password
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
 
@@ -31,12 +42,42 @@ export default function AdminLoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Login failed");
+
+      if (data.requires2FA) {
+        setTempToken(data.tempToken);
+        setStep("2fa");
+        return;
+      }
+
       toast({ title: "Welcome back", description: `Logged in as ${data.role}` });
       setLocation("/admin");
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handle2FA(e: React.FormEvent) {
+    e.preventDefault();
+    setTwoFaLoading(true);
+    try {
+      const res = await fetch("/api/admin/auth/totp/verify-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tempToken, code: twoFaCode.replace(/\s/g, ""), rememberMe }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Verification failed");
+
+      toast({ title: "Welcome back", description: data.warning || `Logged in as ${data.role}` });
+      setLocation("/admin");
+    } catch (err: any) {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+      setTwoFaCode("");
+    } finally {
+      setTwoFaLoading(false);
     }
   }
 
@@ -54,10 +95,10 @@ export default function AdminLoginPage() {
       toast({
         title: "Reset requested",
         description: data.devToken
-          ? `Dev token: ${data.devToken.slice(0, 16)}... (check server logs)`
+          ? `Dev token: ${data.devToken.slice(0, 16)}… (check server logs for full token)`
           : data.message,
       });
-      setShowForgot(false);
+      setStep("login");
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -77,7 +118,8 @@ export default function AdminLoginPage() {
           <p className="text-sm text-muted-foreground">Restricted access — authorised personnel only</p>
         </div>
 
-        {!showForgot ? (
+        {/* Step: Login */}
+        {step === "login" && (
           <Card className="border-border/50">
             <CardHeader className="pb-4">
               <CardTitle className="text-base font-semibold">Sign In</CardTitle>
@@ -137,7 +179,7 @@ export default function AdminLoginPage() {
                   </label>
                   <button
                     type="button"
-                    onClick={() => setShowForgot(true)}
+                    onClick={() => setStep("forgot")}
                     className="text-sm text-primary hover:underline"
                   >
                     Forgot password?
@@ -145,12 +187,57 @@ export default function AdminLoginPage() {
                 </div>
 
                 <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Signing in..." : "Sign in to Admin Portal"}
+                  {loading ? "Signing in…" : "Sign in to Admin Portal"}
                 </Button>
               </form>
             </CardContent>
           </Card>
-        ) : (
+        )}
+
+        {/* Step: 2FA verification */}
+        {step === "2fa" && (
+          <Card className="border-border/50">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-primary" />
+                Two-Factor Authentication
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handle2FA} className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Enter the 6-digit code from your authenticator app, or paste a recovery code (format: <span className="font-mono text-xs">XXXXXXXX-XXXXXXXX</span>).
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="twoFaCode" className="text-sm">Authentication code</Label>
+                  <Input
+                    id="twoFaCode"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="000000  or  XXXXXXXX-XXXXXXXX"
+                    value={twoFaCode}
+                    onChange={(e) => setTwoFaCode(e.target.value)}
+                    maxLength={20}
+                    autoFocus
+                    required
+                    className="font-mono tracking-widest text-center text-lg"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => { setStep("login"); setTwoFaCode(""); }}>
+                    <ArrowLeft className="w-4 h-4 mr-1" /> Back
+                  </Button>
+                  <Button type="submit" className="flex-1" disabled={twoFaLoading || twoFaCode.length < 6}>
+                    {twoFaLoading ? "Verifying…" : "Verify & Sign In"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step: Forgot password */}
+        {step === "forgot" && (
           <Card className="border-border/50">
             <CardHeader className="pb-4">
               <CardTitle className="text-base font-semibold">Reset Password</CardTitle>
@@ -158,7 +245,7 @@ export default function AdminLoginPage() {
             <CardContent>
               <form onSubmit={handleForgot} className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Enter your admin email. A reset token will be generated. In production, it would be emailed to you.
+                  Enter your admin email. A reset token will be generated and logged to the server. In production, it would be emailed to you.
                 </p>
                 <div className="space-y-1.5">
                   <Label htmlFor="forgotEmail" className="text-sm">Admin email</Label>
@@ -172,11 +259,11 @@ export default function AdminLoginPage() {
                   />
                 </div>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" className="flex-1" onClick={() => setShowForgot(false)}>
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setStep("login")}>
                     <ArrowLeft className="w-4 h-4 mr-1" /> Back
                   </Button>
                   <Button type="submit" className="flex-1" disabled={forgotLoading}>
-                    {forgotLoading ? "Sending..." : "Request Reset"}
+                    {forgotLoading ? "Sending…" : "Request Reset"}
                   </Button>
                 </div>
               </form>

@@ -11,7 +11,7 @@ import {
   Crown, LogOut, Shield, BarChart3, Users, UserCheck, CreditCard,
   FileText, Activity, Flag, Settings, Zap, CheckCircle, XCircle,
   AlertTriangle, Clock, Server, Database, DollarSign, TrendingUp,
-  UserPlus, Ban, RefreshCw, Eye, EyeOff, Key, Trash2
+  UserPlus, Ban, RefreshCw, Eye, EyeOff, Key, Trash2, Smartphone, Copy, Lock
 } from "lucide-react";
 
 const OWNER_EMAIL = "beyin365@gmail.com";
@@ -494,6 +494,246 @@ function AdminAccounts({ role }: { role: string }) {
   );
 }
 
+/* ── Security Center (2FA + settings) ────────────────────────────── */
+function SecurityCenter() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [setupData, setSetupData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [disableCode, setDisableCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [showDisable, setShowDisable] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const { data: totpStatus, refetch: refetchTotp } = useQuery<any>({
+    queryKey: ["/api/admin/auth/totp/status"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/auth/totp/status", { credentials: "include" });
+      if (!r.ok) return { enabled: false, recoveryCodesRemaining: 0 };
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  async function startSetup() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/auth/totp/setup", { method: "POST", credentials: "include" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message);
+      setSetupData(data);
+      setVerifyCode("");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function enableTOTP(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/auth/totp/enable", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: verifyCode.trim() }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message);
+      setRecoveryCodes(data.recoveryCodes || []);
+      setSetupData(null);
+      refetchTotp();
+      qc.invalidateQueries({ queryKey: ["/api/admin/auth/me"] });
+      toast({ title: "2FA enabled!", description: "Save your recovery codes — they cannot be shown again." });
+    } catch (e: any) {
+      toast({ title: "Invalid code", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function disableTOTP(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/auth/totp/disable", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: disableCode.trim() }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message);
+      setShowDisable(false);
+      setDisableCode("");
+      refetchTotp();
+      toast({ title: "2FA disabled" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied to clipboard" });
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-semibold">Security</h2>
+
+      {/* 2FA Card */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-primary" />
+              <div>
+                <p className="font-semibold text-sm">Two-Factor Authentication</p>
+                <p className="text-xs text-muted-foreground">Require a code from your authenticator app on every login</p>
+              </div>
+            </div>
+            <Badge className={totpStatus?.enabled ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-gray-500/20 text-gray-400 border-gray-500/30"}>
+              {totpStatus?.enabled ? <><CheckCircle className="w-3 h-3 mr-1" />Enabled</> : <><XCircle className="w-3 h-3 mr-1" />Disabled</>}
+            </Badge>
+          </div>
+
+          {/* Recovery codes remaining */}
+          {totpStatus?.enabled && (
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 text-sm">
+              <span className="text-muted-foreground">Recovery codes remaining</span>
+              <Badge variant="outline" className={totpStatus.recoveryCodesRemaining < 3 ? "text-amber-400" : ""}>
+                {totpStatus.recoveryCodesRemaining} / 8
+              </Badge>
+            </div>
+          )}
+
+          {/* Setup flow */}
+          {!totpStatus?.enabled && !setupData && recoveryCodes.length === 0 && (
+            <Button onClick={startSetup} disabled={loading} className="w-full sm:w-auto">
+              {loading ? "Generating…" : "Set Up Two-Factor Authentication"}
+            </Button>
+          )}
+
+          {/* Step 1: Show secret + QR URI */}
+          {setupData && recoveryCodes.length === 0 && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-muted/30 space-y-3">
+                <p className="text-sm font-medium">1. Open your authenticator app</p>
+                <p className="text-xs text-muted-foreground">Google Authenticator, Authy, 1Password, Microsoft Authenticator, etc.</p>
+                <p className="text-sm font-medium mt-2">2. Add an account manually using this secret:</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-background border border-border rounded px-3 py-2 font-mono tracking-wider break-all">{setupData.secret}</code>
+                  <Button size="sm" variant="outline" onClick={() => copyToClipboard(setupData.secret)}>
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Or copy the full otpauth URI for apps that accept it:</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-background border border-border rounded px-2 py-1.5 font-mono break-all text-muted-foreground">{setupData.otpauthUrl}</code>
+                  <Button size="sm" variant="outline" onClick={() => copyToClipboard(setupData.otpauthUrl)}>
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              <form onSubmit={enableTOTP} className="space-y-3">
+                <p className="text-sm font-medium">3. Enter the 6-digit code shown in your app to confirm</p>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="000000"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value)}
+                    maxLength={6}
+                    className="font-mono tracking-widest text-center text-lg max-w-[140px]"
+                    required
+                  />
+                  <Button type="submit" disabled={loading || verifyCode.length !== 6}>
+                    {loading ? "Verifying…" : "Activate 2FA"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setSetupData(null)}>Cancel</Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Recovery codes shown after enable */}
+          {recoveryCodes.length > 0 && (
+            <div className="space-y-3">
+              <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5 space-y-3">
+                <div className="flex items-center gap-2 text-amber-400 text-sm font-semibold">
+                  <AlertTriangle className="w-4 h-4" /> Save these recovery codes now
+                </div>
+                <p className="text-xs text-muted-foreground">Each code can be used once to log in if you lose your phone. They cannot be shown again.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {recoveryCodes.map((code) => (
+                    <code key={code} className="text-xs font-mono bg-background border border-border rounded px-2 py-1.5 text-center">{code}</code>
+                  ))}
+                </div>
+                <Button size="sm" variant="outline" className="w-full" onClick={() => copyToClipboard(recoveryCodes.join("\n"))}>
+                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy All Recovery Codes
+                </Button>
+              </div>
+              <Button onClick={() => setRecoveryCodes([])}>Done — I've saved my codes</Button>
+            </div>
+          )}
+
+          {/* Disable 2FA */}
+          {totpStatus?.enabled && recoveryCodes.length === 0 && (
+            <div>
+              {!showDisable ? (
+                <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => setShowDisable(true)}>
+                  <Lock className="w-3.5 h-3.5 mr-1.5" /> Disable 2FA
+                </Button>
+              ) : (
+                <form onSubmit={disableTOTP} className="flex gap-2 items-center">
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Enter current code to confirm"
+                    value={disableCode}
+                    onChange={(e) => setDisableCode(e.target.value)}
+                    maxLength={6}
+                    className="font-mono max-w-[200px]"
+                    required
+                  />
+                  <Button type="submit" variant="destructive" size="sm" disabled={loading}>Confirm Disable</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowDisable(false)}>Cancel</Button>
+                </form>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Other security settings */}
+      <div className="grid gap-3">
+        {[
+          { label: "Session Timeout", desc: "Admin sessions expire after 8 hours of inactivity", status: "active" },
+          { label: "Audit Logging", desc: "All admin actions are logged with IP and timestamp", status: "active" },
+          { label: "Rate Limiting", desc: "Login attempts capped at 10/15 min per IP", status: "active" },
+          { label: "Paystack Webhooks", desc: "Webhook signature verification enabled for payment events", status: "active" },
+          { label: "Admin Portal Isolation", desc: "Admin portal uses a separate session from the user application", status: "active" },
+        ].map(({ label, desc, status }) => (
+          <Card key={label}>
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className="flex-1">
+                <p className="font-medium text-sm">{label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+              </div>
+              <Badge className="bg-green-500/20 text-green-400">{status}</Badge>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Platform Settings ────────────────────────────────────────────── */
 function PlatformSettings() {
   return (
@@ -501,7 +741,7 @@ function PlatformSettings() {
       <h2 className="font-semibold">Platform Settings</h2>
       <div className="grid gap-4">
         {[
-          { label: "2FA Enforcement", desc: "Require 2FA for all admin accounts (groundwork ready — integration pending)", status: "planned" },
+          { label: "2FA Enforcement", desc: "TOTP 2FA is available per-admin. Enable it from the Security tab.", status: "active" },
           { label: "Session Timeout", desc: "Admin sessions expire after 8 hours of inactivity", status: "active" },
           { label: "Audit Logging", desc: "All admin actions are logged with IP and timestamp", status: "active" },
           { label: "Rate Limiting", desc: "Login attempts capped at 10/15min per IP", status: "active" },
@@ -513,9 +753,7 @@ function PlatformSettings() {
                 <p className="font-medium text-sm">{label}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
               </div>
-              <Badge className={status === "active" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}>
-                {status}
-              </Badge>
+              <Badge className="bg-green-500/20 text-green-400">{status}</Badge>
             </CardContent>
           </Card>
         ))}
@@ -640,6 +878,7 @@ export default function AdminPage() {
               <TabsTrigger value="fraud" className="gap-1.5 text-xs"><Flag className="w-3.5 h-3.5" /> Fraud</TabsTrigger>
               {isFounder && <TabsTrigger value="admins" className="gap-1.5 text-xs"><Key className="w-3.5 h-3.5" /> Admins</TabsTrigger>}
               <TabsTrigger value="roles" className="gap-1.5 text-xs"><Shield className="w-3.5 h-3.5" /> Roles</TabsTrigger>
+              <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="w-3.5 h-3.5" /> Security</TabsTrigger>
               <TabsTrigger value="settings" className="gap-1.5 text-xs"><Settings className="w-3.5 h-3.5" /> Settings</TabsTrigger>
             </TabsList>
 
@@ -652,6 +891,7 @@ export default function AdminPage() {
             <TabsContent value="fraud"><FraudDetection /></TabsContent>
             {isFounder && <TabsContent value="admins"><AdminAccounts role={role} /></TabsContent>}
             <TabsContent value="roles"><RoleHierarchy /></TabsContent>
+            <TabsContent value="security"><SecurityCenter /></TabsContent>
             <TabsContent value="settings"><PlatformSettings /></TabsContent>
           </Tabs>
         </div>
