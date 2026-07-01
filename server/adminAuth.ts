@@ -96,6 +96,12 @@ function computeHOTP(secretBuf: Buffer, counter: bigint): string {
   return (code % 1_000_000).toString().padStart(6, "0");
 }
 
+export function verifyAdminTOTP(adminId: string, token: string): boolean {
+  const data = totpStore.get(adminId);
+  if (!data || !data.enabled || !data.secret) return false;
+  return verifyTOTP(data.secret, token);
+}
+
 export function verifyTOTP(secret: string, token: string, windowSize = 1): boolean {
   if (!secret || !token || token.length !== 6) return false;
   try {

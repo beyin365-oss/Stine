@@ -11,7 +11,8 @@ import {
   Crown, LogOut, Shield, BarChart3, Users, UserCheck, CreditCard,
   FileText, Activity, Flag, Settings, Zap, CheckCircle, XCircle,
   AlertTriangle, Clock, Server, Database, DollarSign, TrendingUp,
-  UserPlus, Ban, RefreshCw, Eye, EyeOff, Key, Trash2, Smartphone, Copy, Lock
+  UserPlus, Ban, RefreshCw, Eye, EyeOff, Key, Trash2, Smartphone, Copy, Lock,
+  Send, Wallet, Building2, ArrowRight, X
 } from "lucide-react";
 
 const OWNER_EMAIL = "beyin365@gmail.com";
@@ -281,43 +282,430 @@ function KYCCenter() {
 
 /* ── Payout Center ────────────────────────────────────────────────── */
 function PayoutCenter() {
-  const { data: payouts } = useQuery<any[]>({ queryKey: ["/api/admin/payouts/pending"], queryFn: async () => { const r = await fetch("/api/admin/payouts/pending", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  async function approve(payoutId: string) {
-    try {
-      const r = await fetch(`/api/admin/payout/${payoutId}/approve`, { method: "POST", credentials: "include" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.message);
-      qc.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
-      toast({ title: "Payout approved", description: d.message });
-    } catch (e: any) { toast({ title: "Failed", description: e.message, variant: "destructive" }); }
+  // Modal modes: null | "sequential" | "batch"
+  const [mode, setMode] = useState<"sequential" | "batch" | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpVerified, setTotpVerified] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  // Sequential execution state
+  const [seqIndex, setSeqIndex] = useState(0);
+  const [seqResults, setSeqResults] = useState<{ payoutId: string; name: string; amount: number; status: "success" | "failed" | "processing"; reason?: string }[]>([]);
+  const [seqRunning, setSeqRunning] = useState(false);
+
+  // Batch execution state
+  const [batchResult, setBatchResult] = useState<any>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  const { data: summary, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/payouts/batch-summary"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/payouts/batch-summary", { credentials: "include" });
+      if (!r.ok) return { pendingCount: 0, totalAmount: 0, payouts: [], readyCount: 0, notReadyCount: 0 };
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const payouts: any[] = summary?.payouts || [];
+  const readyPayouts = payouts.filter((p: any) => p.hasBankLinked);
+  const readyTotal = readyPayouts.reduce((s: number, p: any) => s + parseFloat(p.amount || "0"), 0);
+
+  function closeModal() {
+    setMode(null);
+    setTotpCode("");
+    setTotpVerified(false);
+    setSeqIndex(0);
+    setSeqResults([]);
+    setSeqRunning(false);
+    setBatchResult(null);
   }
 
+  function openMode(m: "sequential" | "batch") {
+    if (readyPayouts.length === 0) {
+      toast({ title: "No payouts ready", description: "Creators need to link their bank account first.", variant: "destructive" });
+      return;
+    }
+    setMode(m);
+    setTotpCode("");
+    setTotpVerified(false);
+    setSeqIndex(0);
+    setSeqResults([]);
+    setBatchResult(null);
+  }
+
+  // Step 1: verify 2FA once, then unlock execution
+  async function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (totpCode.length < 6) return;
+    setVerifying(true);
+    try {
+      // Verify by attempting a dry batch (we pass an empty list — server just checks 2FA)
+      const r = await fetch("/api/admin/payouts/verify-totp", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ totpCode: totpCode.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message);
+      setTotpVerified(true);
+    } catch (e: any) {
+      toast({ title: "Invalid 2FA code", description: e.message, variant: "destructive" });
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  // Sequential: pay one payout at a time, showing live progress
+  async function runSequential() {
+    setSeqRunning(true);
+    const queue = [...readyPayouts];
+    const results: typeof seqResults = [];
+    for (let i = 0; i < queue.length; i++) {
+      setSeqIndex(i);
+      const p = queue[i];
+      try {
+        const r = await fetch(`/api/admin/payout/${p.id}/approve`, { method: "POST", credentials: "include" });
+        const d = await r.json();
+        results.push({ payoutId: p.id, name: p.djName || p.userId, amount: parseFloat(p.amount || "0"), status: r.ok ? "success" : "failed", reason: r.ok ? undefined : d.message });
+      } catch (err: any) {
+        results.push({ payoutId: p.id, name: p.djName || p.userId, amount: parseFloat(p.amount || "0"), status: "failed", reason: err.message });
+      }
+      setSeqResults([...results]);
+    }
+    setSeqRunning(false);
+    refetch();
+    qc.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
+    const ok = results.filter(r => r.status === "success").length;
+    toast({ title: `Sequential done: ${ok}/${queue.length} paid`, description: `₦${results.filter(r=>r.status==="success").reduce((s,r)=>s+r.amount,0).toLocaleString()} transferred` });
+  }
+
+  // Batch: fire all at once via dedicated endpoint
+  async function runBatch() {
+    setBatchRunning(true);
+    try {
+      const r = await fetch("/api/admin/payouts/execute-batch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ totpCode: totpCode.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message);
+      setBatchResult(d);
+      refetch();
+      qc.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
+      toast({ title: `Batch done: ${d.succeeded} succeeded`, description: `₦${parseFloat(d.totalPaid || 0).toLocaleString()} paid out` });
+    } catch (e: any) {
+      toast({ title: "Batch failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBatchRunning(false);
+    }
+  }
+
+  const seqDone = seqResults.length === readyPayouts.length && !seqRunning;
+
   return (
-    <div className="space-y-4">
-      <h2 className="font-semibold">Payout Center</h2>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold">Payout Center</h2>
+        <Button size="sm" variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card><CardContent className="p-4">
+          <Wallet className="w-4 h-4 mb-1 text-amber-400" />
+          <p className="text-xs text-muted-foreground">Total Pending</p>
+          <p className="font-bold text-lg">₦{(summary?.totalAmount || 0).toLocaleString()}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <Users className="w-4 h-4 mb-1 text-purple-400" />
+          <p className="text-xs text-muted-foreground">Creators Waiting</p>
+          <p className="font-bold text-lg">{summary?.pendingCount || 0}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <Building2 className="w-4 h-4 mb-1 text-green-400" />
+          <p className="text-xs text-muted-foreground">Bank Linked</p>
+          <p className="font-bold text-lg">{summary?.readyCount || 0}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <AlertTriangle className="w-4 h-4 mb-1 text-red-400" />
+          <p className="text-xs text-muted-foreground">No Bank Yet</p>
+          <p className="font-bold text-lg">{summary?.notReadyCount || 0}</p>
+        </CardContent></Card>
+      </div>
+
+      {/* Revenue split */}
+      <div className="flex gap-3 p-3 rounded-lg bg-muted/30 text-sm">
+        <div className="flex-1 text-center">
+          <p className="text-xs text-muted-foreground">Platform Cut</p>
+          <p className="font-bold text-amber-400">30%</p>
+          <p className="text-xs text-muted-foreground">already deducted</p>
+        </div>
+        <div className="w-px bg-border" />
+        <div className="flex-1 text-center">
+          <p className="text-xs text-muted-foreground">Creator Share</p>
+          <p className="font-bold text-green-400">70%</p>
+          <p className="text-xs text-muted-foreground">amounts shown</p>
+        </div>
+        <div className="w-px bg-border" />
+        <div className="flex-1 text-center">
+          <p className="text-xs text-muted-foreground">Ready to Pay</p>
+          <p className="font-bold text-primary">₦{readyTotal.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{readyPayouts.length} with bank</p>
+        </div>
+      </div>
+
+      {/* Two action buttons */}
+      {payouts.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            variant="outline"
+            className="border-green-600 text-green-400 hover:bg-green-600/10 font-semibold gap-2 h-auto py-3 flex-col items-center"
+            onClick={() => openMode("sequential")}
+            disabled={readyPayouts.length === 0}
+          >
+            <ArrowRight className="w-5 h-5" />
+            <span className="text-xs leading-tight text-center">Pay One by One<br /><span className="font-normal opacity-70">review each transfer</span></span>
+          </Button>
+          <Button
+            className="bg-green-600 hover:bg-green-700 text-white font-semibold gap-2 h-auto py-3 flex-col items-center"
+            onClick={() => openMode("batch")}
+            disabled={readyPayouts.length === 0}
+          >
+            <Send className="w-5 h-5" />
+            <span className="text-xs leading-tight text-center">Pay All at Once<br /><span className="font-normal opacity-80">single batch transfer</span></span>
+          </Button>
+        </div>
+      )}
+
+      {/* Individual payout list */}
       <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Pending Payout Requests</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
-          {(payouts || []).length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-sm">No pending payouts</div>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" />
+            </div>
+          ) : payouts.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <Wallet className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No pending payouts</p>
+              <p className="text-sm mt-1 opacity-70">Creator payout requests will appear here</p>
+            </div>
           ) : (
             <div className="divide-y divide-border">
-              {(payouts || []).map((p: any) => (
+              {payouts.map((p: any) => (
                 <div key={p.id} className="p-4 flex flex-wrap items-center gap-3">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{p.djName || p.userId}</p>
-                    <p className="text-xs text-muted-foreground">{p.email} · {p.bankAccount || "No bank linked"}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{p.djName || p.userId}</p>
+                    <p className="text-xs text-muted-foreground truncate">{p.email}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {p.hasBankLinked ? (
+                        <Badge className="text-[10px] bg-green-500/20 text-green-400 border-green-500/30 gap-1">
+                          <Building2 className="w-2.5 h-2.5" /> {p.bankAccount}
+                        </Badge>
+                      ) : (
+                        <Badge className="text-[10px] bg-red-500/20 text-red-400 border-red-500/30 gap-1">
+                          <AlertTriangle className="w-2.5 h-2.5" /> No bank linked
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px]">{p.status}</Badge>
+                    </div>
                   </div>
-                  <p className="font-bold">₦{parseFloat(p.amount || "0").toLocaleString()}</p>
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs" onClick={() => approve(p.id)}>Approve & Transfer</Button>
+                  <div className="text-right">
+                    <p className="font-bold">₦{parseFloat(p.amount || "0").toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">70% net</p>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* ── Unified Modal ── */}
+      {mode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-md border-border shadow-2xl max-h-[90vh] flex flex-col">
+            <CardHeader className="pb-3 shrink-0">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  {mode === "sequential" ? <ArrowRight className="w-4 h-4 text-green-400" /> : <Send className="w-4 h-4 text-green-400" />}
+                  {mode === "sequential" ? "Pay One by One" : "Pay All at Once"}
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={closeModal} disabled={seqRunning || batchRunning}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-4 overflow-y-auto">
+              {/* ── Step 1: 2FA verification ── */}
+              {!totpVerified && (
+                <>
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-1">
+                    <p className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" /> Confirm payout details
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Creators to pay</p>
+                        <p className="font-bold text-lg">{readyPayouts.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Total amount</p>
+                        <p className="font-bold text-lg text-green-400">₦{readyTotal.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    {summary?.notReadyCount > 0 && (
+                      <p className="text-xs text-amber-400 mt-1">⚠ {summary.notReadyCount} without bank will be skipped.</p>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleVerify} className="space-y-3">
+                    <div className="space-y-1.5">
+                      <p className="text-sm font-medium">Enter your 2FA code to unlock</p>
+                      <p className="text-xs text-muted-foreground">Paystack transfers are irreversible once sent.</p>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="000000"
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        maxLength={6}
+                        className="font-mono tracking-widest text-center text-lg"
+                        autoFocus
+                        required
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" className="flex-1" onClick={closeModal}>Cancel</Button>
+                      <Button type="submit" className="flex-1 bg-primary text-primary-foreground" disabled={verifying || totpCode.length < 6}>
+                        {verifying ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Verifying…</> : "Verify & Unlock"}
+                      </Button>
+                    </div>
+                  </form>
+                </>
+              )}
+
+              {/* ── Step 2a: Sequential ── */}
+              {totpVerified && mode === "sequential" && (
+                <div className="space-y-3">
+                  {/* Progress list */}
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {readyPayouts.map((p: any, i: number) => {
+                      const result = seqResults.find(r => r.payoutId === p.id);
+                      const isCurrent = seqRunning && i === seqIndex;
+                      return (
+                        <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border text-sm ${
+                          result?.status === "success" ? "border-green-500/30 bg-green-500/5" :
+                          result?.status === "failed" ? "border-red-500/30 bg-red-500/5" :
+                          isCurrent ? "border-primary/50 bg-primary/5" :
+                          "border-border bg-muted/10 opacity-60"
+                        }`}>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{p.djName || p.userId}</p>
+                            <p className="text-xs text-muted-foreground">₦{parseFloat(p.amount || "0").toLocaleString()}</p>
+                          </div>
+                          <div className="shrink-0">
+                            {result?.status === "success" && <CheckCircle className="w-4 h-4 text-green-400" />}
+                            {result?.status === "failed" && <XCircle className="w-4 h-4 text-red-400" title={result.reason} />}
+                            {result?.status === "processing" && <Clock className="w-4 h-4 text-amber-400" />}
+                            {isCurrent && !result && <RefreshCw className="w-4 h-4 text-primary animate-spin" />}
+                            {!result && !isCurrent && <Clock className="w-4 h-4 text-muted-foreground/30" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Progress bar */}
+                  {(seqRunning || seqResults.length > 0) && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{seqResults.length} / {readyPayouts.length}</span>
+                        <span>₦{seqResults.filter(r=>r.status==="success").reduce((s,r)=>s+r.amount,0).toLocaleString()} paid</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${(seqResults.length / readyPayouts.length) * 100}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={closeModal} disabled={seqRunning}>
+                      {seqDone ? "Close" : "Cancel"}
+                    </Button>
+                    {!seqDone && !seqRunning && (
+                      <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white" onClick={runSequential}>
+                        <ArrowRight className="w-4 h-4 mr-2" /> Start Paying
+                      </Button>
+                    )}
+                    {seqRunning && (
+                      <Button className="flex-1" disabled>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Paying {seqIndex + 1}/{readyPayouts.length}…
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 2b: Batch ── */}
+              {totpVerified && mode === "batch" && (
+                <div className="space-y-4">
+                  {!batchResult ? (
+                    <>
+                      <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-center">
+                        <p className="text-sm text-muted-foreground">2FA verified. Ready to fire batch transfer.</p>
+                        <p className="font-bold text-xl text-green-400 mt-1">₦{readyTotal.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{readyPayouts.length} creators · single Paystack batch</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" className="flex-1" onClick={closeModal} disabled={batchRunning}>Cancel</Button>
+                        <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold" onClick={runBatch} disabled={batchRunning}>
+                          {batchRunning ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sending…</> : <><Send className="w-4 h-4 mr-2" />Send All Now</>}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="p-3 rounded-lg bg-green-500/10">
+                          <p className="text-2xl font-bold text-green-400">{batchResult.succeeded}</p>
+                          <p className="text-xs text-muted-foreground">Succeeded</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-amber-500/10">
+                          <p className="text-2xl font-bold text-amber-400">{batchResult.processing}</p>
+                          <p className="text-xs text-muted-foreground">Processing</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-red-500/10">
+                          <p className="text-2xl font-bold text-red-400">{batchResult.failed}</p>
+                          <p className="text-xs text-muted-foreground">Failed</p>
+                        </div>
+                      </div>
+                      <p className="text-center font-semibold text-green-400">₦{parseFloat(batchResult.totalPaid || 0).toLocaleString()} paid out</p>
+                      {batchResult.results?.filter((r: any) => r.status === "failed").map((r: any) => (
+                        <div key={r.payoutId} className="text-xs text-red-400 bg-red-500/10 rounded p-2">{r.payoutId.slice(-6)}: {r.reason}</div>
+                      ))}
+                      <Button className="w-full" onClick={closeModal}>Done</Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

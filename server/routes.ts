@@ -1093,6 +1093,160 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Verify admin TOTP for payout unlock (does not execute anything) ─────
+  app.post('/api/admin/payouts/verify-totp', isAdminAuthenticated, async (req: any, res: any) => {
+    try {
+      const { totpCode } = req.body;
+      if (!totpCode) return res.status(400).json({ message: '2FA code required' });
+      const { verifyAdminTOTP } = await import('./adminAuth');
+      const adminId = (req.session as any).adminId;
+      const ok = verifyAdminTOTP(adminId, String(totpCode).trim());
+      if (!ok) return res.status(403).json({ message: 'Invalid 2FA code' });
+      res.json({ verified: true });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Verification failed: ' + error.message });
+    }
+  });
+
+  // ── Batch payout summary (founder only) ──────────────────────────────────
+  app.get('/api/admin/payouts/batch-summary', isAdminAuthenticated, async (_req: any, res: any) => {
+    try {
+      const allPayouts = await storage.getAllPayouts?.() ?? [];
+      const pending = allPayouts.filter((p: any) => p.status === 'pending');
+      const { mongoDb } = await import('./db');
+      const enriched = await Promise.all(pending.map(async (p: any) => {
+        const user = await storage.getUser?.(p.userId).catch(() => null);
+        const wallet = mongoDb ? await mongoDb.collection('creatorWallets').findOne({ userId: p.userId }) : null;
+        return {
+          ...p,
+          djName: user?.djName || user?.firstName || p.userId,
+          email: user?.email || '',
+          bankAccount: wallet?.accountNumber || '',
+          bankCode: wallet?.bankCode || '',
+          accountName: wallet?.accountName || '',
+          hasBankLinked: !!(wallet?.accountNumber && wallet?.bankCode),
+        };
+      }));
+
+      const totalPending = pending.reduce((s: number, p: any) => s + parseFloat(p.amount || '0'), 0);
+      const platformFeeRate = 0.30;
+      const creatorTotal = totalPending; // amounts already net (70%) after platform fee was taken at payment time
+
+      res.json({
+        pendingCount: pending.length,
+        totalAmount: totalPending,
+        platformFeeRate,
+        readyCount: enriched.filter((p: any) => p.hasBankLinked).length,
+        notReadyCount: enriched.filter((p: any) => !p.hasBankLinked).length,
+        payouts: enriched,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to load payout summary: ' + error.message });
+    }
+  });
+
+  // ── Execute batch payouts (founder + TOTP required) ───────────────────────
+  app.post('/api/admin/payouts/execute-batch', isAdminAuthenticated, async (req: any, res: any) => {
+    try {
+      const { totpCode, payoutIds } = req.body; // payoutIds = undefined means "all pending"
+      if (!totpCode) return res.status(400).json({ message: '2FA code required to execute payouts' });
+
+      // Verify TOTP
+      const { verifyAdminTOTP } = await import('./adminAuth');
+      const adminId = (req.session as any).adminId;
+      const totpOk = verifyAdminTOTP(adminId, totpCode.trim());
+      if (!totpOk) return res.status(403).json({ message: 'Invalid 2FA code — payouts not executed' });
+
+      const allPayouts = await storage.getAllPayouts?.() ?? [];
+      let targets = allPayouts.filter((p: any) => p.status === 'pending');
+      if (payoutIds && Array.isArray(payoutIds) && payoutIds.length > 0) {
+        targets = targets.filter((p: any) => payoutIds.includes(p.id));
+      }
+      if (targets.length === 0) return res.status(400).json({ message: 'No pending payouts to execute' });
+
+      const { mongoDb } = await import('./db');
+      const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
+      const batchId = `batch_${Date.now()}`;
+      const results: any[] = [];
+
+      for (const payout of targets) {
+        const wallet = mongoDb ? await mongoDb.collection('creatorWallets').findOne({ userId: payout.userId }) : null;
+
+        if (PAYSTACK_SECRET && wallet?.accountNumber && wallet?.bankCode) {
+          try {
+            // Create transfer recipient
+            const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'nuban',
+                name: wallet.accountName || payout.userId,
+                account_number: wallet.accountNumber,
+                bank_code: wallet.bankCode,
+                currency: 'NGN',
+              }),
+            });
+            const recipientData = await recipientRes.json() as any;
+
+            if (recipientData.status !== true) {
+              results.push({ payoutId: payout.id, status: 'failed', reason: recipientData.message });
+              continue;
+            }
+
+            // Execute transfer
+            const amountKobo = Math.round(parseFloat(payout.amount) * 100);
+            const transferRes = await fetch('https://api.paystack.co/transfer', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                source: 'balance',
+                amount: amountKobo,
+                recipient: recipientData.data.recipient_code,
+                reason: `STINE Payout Batch ${batchId} - ${payout.id}`,
+              }),
+            });
+            const transferData = await transferRes.json() as any;
+
+            if (transferData.status === true) {
+              await storage.updatePayoutStatus?.(payout.id, 'completed');
+              results.push({ payoutId: payout.id, status: 'success', transferCode: transferData.data?.transfer_code });
+            } else {
+              results.push({ payoutId: payout.id, status: 'failed', reason: transferData.message });
+            }
+          } catch (err: any) {
+            results.push({ payoutId: payout.id, status: 'failed', reason: err.message });
+          }
+        } else {
+          // No Paystack or no bank linked — mark as processing
+          await storage.updatePayoutStatus?.(payout.id, 'processing');
+          results.push({ payoutId: payout.id, status: 'processing', reason: wallet?.accountNumber ? 'No Paystack key' : 'No bank linked' });
+        }
+      }
+
+      const succeeded = results.filter(r => r.status === 'success').length;
+      const failed = results.filter(r => r.status === 'failed').length;
+      const processing = results.filter(r => r.status === 'processing').length;
+      const totalPaid = targets
+        .filter((p: any) => results.find(r => r.payoutId === p.id && r.status === 'success'))
+        .reduce((s: number, p: any) => s + parseFloat(p.amount || '0'), 0);
+
+      // Audit log
+      if (mongoDb) {
+        await mongoDb.collection('adminAuditLogs').insertOne({
+          id: `audit_${Date.now()}`,
+          action: 'batch_payout_executed',
+          adminId,
+          details: { batchId, total: targets.length, succeeded, failed, processing, totalPaid },
+          createdAt: new Date(),
+        });
+      }
+
+      res.json({ batchId, total: targets.length, succeeded, failed, processing, totalPaid, results });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Batch payout failed: ' + error.message });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // PLATFORM HEALTH  (admin-session authenticated)
   // ─────────────────────────────────────────────────────────────────────────
