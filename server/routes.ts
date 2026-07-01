@@ -1093,6 +1093,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Payout history (all statuses, enriched) ─────────────────────────────
+  app.get('/api/admin/payouts/history', isAdminAuthenticated, async (_req: any, res: any) => {
+    try {
+      const allPayouts = (await storage.getAllPayouts?.() ?? []) as any[];
+      const { mongoDb } = await import('./db');
+      const enriched = await Promise.all(
+        allPayouts
+          .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+          .slice(0, 200)
+          .map(async (p: any) => {
+            const user = await storage.getUser?.(p.userId).catch(() => null);
+            const wallet = mongoDb ? await mongoDb.collection('creatorWallets').findOne({ userId: p.userId }) : null;
+            return {
+              ...p,
+              djName: user?.djName || user?.firstName || p.userId,
+              email: user?.email || '',
+              bankAccount: wallet?.accountNumber || '',
+              bankName: wallet?.bankName || '',
+            };
+          })
+      );
+      // Also pull batch audit entries
+      const batchLogs = mongoDb
+        ? await mongoDb.collection('adminAuditLogs')
+            .find({ action: 'batch_payout_executed' })
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .toArray()
+        : [];
+      res.json({ payouts: enriched, batches: batchLogs });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to load payout history: ' + error.message });
+    }
+  });
+
   // ── Verify admin TOTP for payout unlock (does not execute anything) ─────
   app.post('/api/admin/payouts/verify-totp', isAdminAuthenticated, async (req: any, res: any) => {
     try {

@@ -710,6 +710,130 @@ function PayoutCenter() {
   );
 }
 
+/* ── Payout History ───────────────────────────────────────────────── */
+function PayoutHistory() {
+  const [filter, setFilter] = useState<"all" | "pending" | "completed" | "processing" | "failed">("all");
+  const [search, setSearch] = useState("");
+
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/payouts/history"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/payouts/history", { credentials: "include" });
+      if (!r.ok) return { payouts: [], batches: [] };
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const payouts: any[] = data?.payouts || [];
+  const batches: any[] = data?.batches || [];
+
+  const filtered = payouts.filter((p: any) => {
+    if (filter !== "all" && p.status !== filter) return false;
+    if (search && !((p.djName || "").toLowerCase().includes(search.toLowerCase()) || (p.email || "").toLowerCase().includes(search.toLowerCase()))) return false;
+    return true;
+  });
+
+  const totalPaid = payouts.filter((p: any) => p.status === "completed").reduce((s: number, p: any) => s + parseFloat(p.amount || "0"), 0);
+  const totalPending = payouts.filter((p: any) => p.status === "pending").reduce((s: number, p: any) => s + parseFloat(p.amount || "0"), 0);
+
+  const statusColor: Record<string, string> = {
+    completed: "bg-green-500/20 text-green-400 border-green-500/30",
+    pending: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    processing: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    failed: "bg-red-500/20 text-red-400 border-red-500/30",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold">Payout History</h2>
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Total Paid Out</p>
+          <p className="font-bold text-lg text-green-400">₦{totalPaid.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{payouts.filter((p: any) => p.status === "completed").length} transfers</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Still Pending</p>
+          <p className="font-bold text-lg text-amber-400">₦{totalPending.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{payouts.filter((p: any) => p.status === "pending").length} requests</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Batch Runs</p>
+          <p className="font-bold text-lg">{batches.length}</p>
+          <p className="text-xs text-muted-foreground">executed batch payouts</p>
+        </CardContent></Card>
+      </div>
+
+      {/* Batch history */}
+      {batches.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Batch Execution History</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border max-h-40 overflow-y-auto">
+              {batches.map((b: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                  <div>
+                    <p className="text-xs font-mono text-muted-foreground">{b.details?.batchId || "—"}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(b.createdAt).toLocaleString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-green-400">₦{parseFloat(b.details?.totalPaid || "0").toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">{b.details?.succeeded || 0} ok · {b.details?.failed || 0} failed</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <Input placeholder="Search creator…" value={search} onChange={e => setSearch(e.target.value)} className="h-8 text-xs w-48" />
+        {(["all", "pending", "completed", "processing", "failed"] as const).map(s => (
+          <button key={s} onClick={() => setFilter(s)}
+            className={`px-3 py-1 rounded-full text-xs border transition-all ${filter === s ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50"}`}>
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* Payout log table */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">No payouts match this filter</div>
+          ) : (
+            <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+              {filtered.map((p: any) => (
+                <div key={p.id} className="px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{p.djName || p.userId}</p>
+                    <p className="text-xs text-muted-foreground truncate">{p.email}</p>
+                    {p.bankAccount && <p className="text-xs text-muted-foreground font-mono">{p.bankAccount} · {p.bankName}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold">₦{parseFloat(p.amount || "0").toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}</p>
+                  </div>
+                  <Badge className={`text-[10px] border shrink-0 ${statusColor[p.status] || "bg-gray-500/20 text-gray-400 border-gray-500/30"}`}>
+                    {p.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 /* ── Audit Logs ───────────────────────────────────────────────────── */
 function AuditLogs() {
   const { data: logs } = useQuery<any[]>({ queryKey: ["/api/admin/audit-logs"], queryFn: async () => { const r = await fetch("/api/admin/audit-logs", { credentials: "include" }); if (!r.ok) return []; return r.json(); } });
@@ -1274,7 +1398,7 @@ export default function AdminPage() {
             <TabsContent value="revenue"><RevenueDashboard /></TabsContent>
             <TabsContent value="users"><UserManagement /></TabsContent>
             <TabsContent value="kyc"><KYCCenter /></TabsContent>
-            <TabsContent value="payouts"><PayoutCenter /></TabsContent>
+            <TabsContent value="payouts" className="space-y-8"><PayoutCenter /><PayoutHistory /></TabsContent>
             <TabsContent value="audit"><AuditLogs /></TabsContent>
             <TabsContent value="fraud"><FraudDetection /></TabsContent>
             {isFounder && <TabsContent value="admins"><AdminAccounts role={role} /></TabsContent>}
