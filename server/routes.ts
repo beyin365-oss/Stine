@@ -1234,6 +1234,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User download count
+  // Notifications endpoints
+  app.get('/api/notifications', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        const notifications = await mongoDb.collection('notifications')
+          .find({ userId })
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .toArray();
+        return res.json(notifications);
+      }
+      res.json([]);
+    } catch { res.json([]); }
+  });
+
+  app.post('/api/notifications/read-all', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { mongoDb } = await import('./db');
+      if (mongoDb) {
+        await mongoDb.collection('notifications').updateMany({ userId }, { $set: { read: true } });
+      }
+      res.json({ ok: true });
+    } catch { res.json({ ok: true }); }
+  });
+
+  app.patch('/api/notifications/:id/read', isAuthenticated, async (req: any, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      const { ObjectId } = await import('mongodb');
+      if (mongoDb) {
+        await mongoDb.collection('notifications').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { read: true } });
+      }
+      res.json({ ok: true });
+    } catch { res.json({ ok: true }); }
+  });
+
+  app.delete('/api/notifications/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { mongoDb } = await import('./db');
+      const { ObjectId } = await import('mongodb');
+      if (mongoDb) {
+        await mongoDb.collection('notifications').deleteOne({ _id: new ObjectId(req.params.id) });
+      }
+      res.json({ ok: true });
+    } catch { res.json({ ok: true }); }
+  });
+
   app.get('/api/user/download-count', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

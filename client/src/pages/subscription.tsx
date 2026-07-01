@@ -35,7 +35,7 @@ const TIERS = [
     id: "tier-basic",
     name: "PREMIUM LITE",
     subtitle: "₦1,400 / month",
-    price: 140000,
+    price: 1400,
     currency: "NGN",
     color: "from-cyan-600 to-blue-600",
     badge: "Popular",
@@ -55,7 +55,7 @@ const TIERS = [
     id: "tier-pro",
     name: "CREATOR PRO",
     subtitle: "₦5,000 / month",
-    price: 500000,
+    price: 5000,
     currency: "NGN",
     color: "from-purple-600 to-pink-600",
     badge: "Best Value",
@@ -77,7 +77,7 @@ const TIERS = [
     id: "tier-premium",
     name: "STUDIO MASTER",
     subtitle: "₦15,000 / month",
-    price: 1500000,
+    price: 15000,
     currency: "NGN",
     color: "from-amber-500 to-orange-600",
     badge: "Pro",
@@ -100,7 +100,7 @@ const TIERS = [
     id: "tier-elite",
     name: "ELITE AGENCY",
     subtitle: "₦50,000 / month",
-    price: 5000000,
+    price: 50000,
     currency: "NGN",
     color: "from-rose-600 to-purple-700",
     badge: "Elite",
@@ -240,7 +240,7 @@ export default function SubscriptionPage() {
                     {tier.price === 0 ? (
                       <p className="text-2xl font-bold">Free</p>
                     ) : (
-                      <p className="text-xl font-bold">₦{(tier.price / 100).toLocaleString()}<span className="text-xs font-normal opacity-70">/mo</span></p>
+                      <p className="text-xl font-bold">₦{tier.price.toLocaleString()}<span className="text-xs font-normal opacity-70">/mo</span></p>
                     )}
                   </div>
                 </CardHeader>

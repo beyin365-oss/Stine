@@ -4,31 +4,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { mockTracks } from "@/lib/mockData";
 import { mockAlbums } from "@/lib/musicData";
-import { Play, Pause, Heart, Share2, Clock, Disc, ListMusic } from "lucide-react";
+import { Play, Heart, Share2, Clock, Disc, ListMusic, Music } from "lucide-react";
 import { useState } from "react";
 
 export default function AlbumPage() {
   const params = useParams();
   const [_, setLocation] = useLocation();
   const { toast } = useToast();
-  const [playingTrack, setPlayingTrack] = useState<string | null>(null);
-  const [likedTracks, setLikedTracks] = useState<Set<string>>(new Set());
   const [isSaved, setIsSaved] = useState(false);
 
   const albumId = params?.id || "alb1";
   const album = mockAlbums.find(a => a.id === albumId) || mockAlbums[0];
-  const albumTracks = mockTracks.slice(0, Math.min(album.tracks, 8));
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const totalDuration = albumTracks.reduce((sum, t) => sum + t.duration, 0);
-  const totalMins = Math.floor(totalDuration / 60);
 
   return (
     <div className="min-h-screen pb-24 md:pb-4 bg-background">
@@ -43,11 +30,8 @@ export default function AlbumPage() {
               <Badge variant="secondary" className="mb-2">Album</Badge>
               <h1 className="text-3xl md:text-5xl font-bold mb-2">{album.title}</h1>
               <p className="text-lg text-muted-foreground mb-1 cursor-pointer hover:underline" onClick={() => setLocation(`/artist/a1`)}>{album.artist}</p>
-              <p className="text-sm text-muted-foreground">{album.year} • {albumTracks.length} tracks, {totalMins} min</p>
+              <p className="text-sm text-muted-foreground">{album.year}</p>
               <div className="flex gap-3 mt-4 justify-center md:justify-start">
-                <Button className="geometric-gradient text-primary-foreground" onClick={() => { setPlayingTrack(albumTracks[0].id); toast({ title: "Playing album", description: album.title }); }}>
-                  <Play className="w-4 h-4 mr-2" /> Play
-                </Button>
                 <Button variant="outline" onClick={() => { setIsSaved(!isSaved); toast({ title: isSaved ? "Removed from library" : "Saved to library" }); }}>
                   <Heart className={`w-4 h-4 mr-2 ${isSaved ? 'text-pink-500 fill-pink-500' : ''}`} /> {isSaved ? 'Saved' : 'Save'}
                 </Button>
@@ -66,26 +50,13 @@ export default function AlbumPage() {
             <span className="flex-1">Title</span>
             <span className="w-12 text-right"><Clock className="w-3 h-3 inline" /></span>
           </div>
-          {albumTracks.map((track, idx) => (
-            <div key={track.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors group cursor-pointer"
-              onClick={() => setPlayingTrack(playingTrack === track.id ? null : track.id)}>
-              <span className="w-6 text-center text-sm text-muted-foreground">{idx + 1}</span>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 overflow-hidden relative flex-shrink-0">
-                <img src={track.albumArt} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  {playingTrack === track.id ? <Pause className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white" />}
-                </div>
-              </div>
-              <div className="flex-1">
-                <p className={`font-medium text-sm ${playingTrack === track.id ? 'text-primary' : ''}`}>{track.title}</p>
-                <p className="text-xs text-muted-foreground">{track.artist}</p>
-              </div>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); setLikedTracks(p => { const n = new Set(p); n.has(track.id) ? n.delete(track.id) : n.add(track.id); return n; }); }}>
-                <Heart className={`w-4 h-4 ${likedTracks.has(track.id) ? 'text-pink-500 fill-pink-500' : ''}`} />
-              </Button>
-              <span className="text-xs text-muted-foreground font-mono w-12 text-right">{formatTime(track.duration)}</span>
-            </div>
-          ))}
+
+          {/* Empty state — no tracks uploaded yet */}
+          <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
+            <Music className="w-12 h-12 opacity-30" />
+            <p className="font-medium">No songs uploaded yet</p>
+            <p className="text-sm opacity-70">Tracks for this album haven't been added to STINE yet.</p>
+          </div>
         </div>
 
         {/* More from Artist */}

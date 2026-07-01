@@ -40,37 +40,7 @@ interface Track {
   genre?: string;
 }
 
-const mockTracks: Track[] = [
-  {
-    id: "1",
-    title: "Neon Lights",
-    artist: "Synth Wave",
-    duration: 225, // 3:45
-    genre: "electronic"
-  },
-  {
-    id: "2", 
-    title: "Digital Horizon",
-    artist: "Electric Soul",
-    duration: 260, // 4:20
-    genre: "house"
-  },
-  {
-    id: "3",
-    title: "Cosmic Dance", 
-    artist: "Space Disco",
-    duration: 312, // 5:12
-    genre: "techno"
-  }
-];
-
-const mockCurrentTrack: Track = {
-  id: "current",
-  title: "Crystalline Dreams",
-  artist: "DJ Stine",
-  duration: 252, // 4:12
-  albumArt: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=300&h=300"
-};
+const EMPTY_TRACKS: Track[] = [];
 
 export function LiveDashboard() {
   const [isPlaying, setIsPlaying] = useState(true);
@@ -123,12 +93,7 @@ export function LiveDashboard() {
     let interval: NodeJS.Timeout;
     if (isPlaying) {
       interval = setInterval(() => {
-        setCurrentTime(prev => {
-          if (prev >= mockCurrentTrack.duration) {
-            return 0; // Loop back to start
-          }
-          return prev + 1;
-        });
+        setCurrentTime(prev => prev + 1);
         setStreamDuration(prev => prev + 1);
       }, 1000);
     }
@@ -183,13 +148,9 @@ export function LiveDashboard() {
                 <div className="flex items-center space-x-2">
                   <Headphones className="w-4 h-4 text-primary" />
                   <span className="font-mono text-lg" data-testid="text-listener-count">
-                    {currentStream?.listenerCount || 1247}
+                    {currentStream?.listenerCount ?? 0}
                   </span>
                   <span className="text-sm text-muted-foreground">listeners</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Heart className="w-4 h-4 text-accent" />
-                  <span className="font-mono" data-testid="text-likes-total">346</span>
                 </div>
               </div>
             </div>
@@ -221,21 +182,21 @@ export function LiveDashboard() {
           {/* Music Player */}
           <div className="mb-6">
             <MusicPlayer
-              currentTrack={mockCurrentTrack}
+              currentTrack={null}
               isPlaying={isPlaying}
               currentTime={currentTime}
               onPlayPause={handlePlayPause}
-              onPrevious={() => console.log('Previous track')}
-              onNext={() => console.log('Next track')}
-              onLike={() => console.log('Like track')}
+              onPrevious={() => {}}
+              onNext={() => {}}
+              onLike={() => {}}
             />
           </div>
 
           {/* Queue and Requests */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <TrackQueue 
-              tracks={mockTracks}
-              onRemoveTrack={(trackId) => console.log('Remove track:', trackId)}
+              tracks={EMPTY_TRACKS}
+              onRemoveTrack={() => {}}
             />
             <SongRequests streamId={currentStream?.id} />
           </div>
